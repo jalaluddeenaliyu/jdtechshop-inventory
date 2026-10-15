@@ -1,0 +1,23 @@
+# Secrets and local settings
+.env
+*.env.local
+
+# Database backups contain all business data — keep them out of Git
+backups/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Node / build output
+node_modules/
+frontend/dist/
+
+# Editors / OS
+.DS_Store
+.idea/
+
+# Server and backup logs
+logs/

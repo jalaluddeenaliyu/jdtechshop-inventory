@@ -1,0 +1,52 @@
+@import "tailwindcss";
+@import "@fontsource-variable/onest";
+
+/* JD TechShop design tokens — palette taken from a circuit board:
+   solder-mask green, gold contact pads, clean paper. */
+@theme {
+  --font-sans: "Onest Variable", ui-sans-serif, system-ui, sans-serif;
+
+  --color-board: #0e3b2e;       /* sidebar, primary buttons */
+  --color-board-700: #134a3a;
+  --color-board-600: #1b5c49;
+  --color-board-300: #8fb3a6;
+  --color-pad: #d9a520;         /* single accent: active state, focus */
+  --color-pad-600: #b8891a;
+  --color-paper: #f4f6f5;       /* app background */
+  --color-ink: #15201c;         /* body text */
+  --color-muted: #5b6a64;       /* secondary text */
+  --color-line: #dde3e0;        /* borders */
+  --color-alert: #b42318;
+  --color-alert-bg: #fdecea;
+  --color-ok: #1f7a4d;
+  --color-ok-bg: #e7f4ec;
+}
+
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* Money and quantities always use equal-width digits so columns line up. */
+.num { font-variant-numeric: tabular-nums; }
+
+:focus-visible {
+  outline: 2px solid var(--color-pad);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: white; }
+  /* Receipts: no app padding, sized for an A4 sheet or an 80 mm receipt printer. */
+  @page { margin: 6mm; }
+  main { padding: 0 !important; margin: 0 !important; max-width: none !important; }
+}

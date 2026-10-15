@@ -1,0 +1,26 @@
+# Caddy: HTTPS in front of JD TechShop (see docs/PRODUCTION.md).
+# Devices in the shop open  https://jdtechshop.local  (this Mac's Local Hostname).
+# Caddy makes and renews the certificate itself, from its own certificate authority ("tls internal");
+# each device trusts that authority once. With a real domain on the internet, replace the site
+# address with the domain and delete the "tls internal" line: Caddy then gets a public certificate.
+
+jdtechshop.local, localhost {
+	tls internal
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8080
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+	log {
+		output file /usr/local/var/log/caddy-jdtechshop.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}
+
+# Anyone typing http:// is sent to https:// automatically.
