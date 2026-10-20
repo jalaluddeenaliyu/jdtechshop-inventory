@@ -1,4 +1,4 @@
-import { FileSpreadsheet, History, PackagePlus, Pencil, Plus, ScanLine, Search, Tags, Truck } from "lucide-react";
+import { FileSpreadsheet, History, PackagePlus, Pencil, Plus, ScanLine, Search, Tags, Trash2, Truck } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -249,7 +249,8 @@ export function ProductsPage() {
       <Dialog wide open={mode?.kind === "edit"} title="Edit product" onClose={() => setMode(null)}>
         {mode?.kind === "edit" && (
           <ProductForm product={mode.product} categories={categories} brands={brands}
-            onDone={(p) => done(`Saved changes to ${p.name}.`)} />
+            onDone={(p) => done(`Saved changes to ${p.name}.`)}
+            onDeleted={(message) => done(message)} />
         )}
       </Dialog>
       <Dialog open={mode?.kind === "opening"} title="Add stock you already have" onClose={() => setMode(null)}>
@@ -364,7 +365,7 @@ function ProductActions({ p, onEdit, onOpening }: {
           className="inline-flex items-center gap-2 rounded-md px-3 h-8 text-sm font-medium text-board hover:bg-board/5">
           <History className="size-4" aria-hidden /><span className="sr-only">History</span>
         </Link>
-        <Button variant="ghost" className="h-8" title="Edit product" onClick={() => onEdit(p)}>
+        <Button variant="ghost" className="h-8" title="Edit or delete product" onClick={() => onEdit(p)}>
           <Pencil className="size-4" aria-hidden /><span className="sr-only">Edit</span>
         </Button>
     </>
@@ -503,11 +504,13 @@ function ProductForm({
   categories,
   brands,
   onDone,
+  onDeleted,
 }: {
   product?: Product;
   categories: Category[];
   brands: Brand[];
   onDone: (p: Product) => void;
+  onDeleted?: (message: string) => void;
 }) {
   const [form, setForm] = useState<ProductFormState>(() => initialForm(product));
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -675,7 +678,65 @@ function ProductForm({
       <div className="flex justify-end pt-2">
         <Button type="submit" loading={busy}>{editing ? "Save changes" : "Add product"}</Button>
       </div>
+      {editing && onDeleted && <DeleteProduct product={product} onDeleted={onDeleted} />}
     </form>
+  );
+}
+
+/** "Delete product" for products added by mistake. The server decides what is allowed. */
+function DeleteProduct({ product, onDeleted }: { product: Product; onDeleted: (message: string) => void }) {
+  const [asking, setAsking] = useState(false);
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const hasStock = product.qty_on_hand > 0;
+
+  async function remove() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.del<{ result: "deleted" | "removed"; name: string; quantity_removed: number; value_removed: string }>(
+        `/products/${product.id}${qs({ reason })}`);
+      onDeleted(r.result === "deleted"
+        ? `Deleted ${r.name}.`
+        : `Removed ${r.name}: took ${r.quantity_removed} out of stock (${naira(r.value_removed)} at cost). The stock history keeps a note of it.`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not delete. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-2 border-t border-line pt-4">
+      {!asking ? (
+        <Button type="button" variant="ghost" className="h-9 text-alert hover:bg-alert-bg" onClick={() => setAsking(true)}>
+          <Trash2 className="size-4" aria-hidden /> Delete product
+        </Button>
+      ) : (
+        <div className="rounded-md border border-alert/30 bg-alert-bg/50 p-4 space-y-3">
+          <p className="font-medium">Delete {product.name}?</p>
+          <p className="text-sm text-muted">
+            {hasStock
+              ? `Its ${product.qty_on_hand} in stock will be taken back out and the product removed from your list. The stock history keeps a note of this. You can then add it again correctly, with the same name${product.tracking_type === "serialized" ? " and the same IMEIs" : ""}.`
+              : "It will be removed completely."}
+            {" "}Products that have already been bought or sold can't be deleted, because your sales and profit records depend on them. Untick “Product is on sale” above to hide those instead.
+          </p>
+          {error && <Notice tone="error">{error}</Notice>}
+          <TextInput label="Why? (optional)" value={reason} onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. Typed 200 instead of 20" maxLength={200} />
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="danger" loading={busy} onClick={remove}>
+              <Trash2 className="size-4" aria-hidden /> Yes, delete it
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => { setAsking(false); setError(null); }}>
+              Keep it
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

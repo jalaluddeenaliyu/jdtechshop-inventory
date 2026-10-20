@@ -5,6 +5,7 @@ import { useAuth } from "../lib/auth";
 import { Logo } from "./Logo";
 import { roleLabel } from "../lib/format";
 import { navFor } from "../lib/nav";
+import { UpdateBanner } from "./UpdateBanner";
 
 function Wordmark() {
   return (
@@ -123,6 +124,7 @@ export function Layout() {
       )}
 
       <main key={location.pathname} className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
+        <UpdateBanner />
         <Outlet />
       </main>
     </div>

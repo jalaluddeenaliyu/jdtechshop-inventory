@@ -283,16 +283,17 @@ def _check_name_free(db: Session, name: str | None, exclude_id: int | None = Non
     (e.g. "iPhone 13 128GB used")."""
     if not name:
         return
+    # Only products that are on sale count: a turned-off or removed product doesn't stop
+    # the name being used again.
     q = select(Product).where(
+        Product.is_active.is_(True),
         func.lower(func.regexp_replace(func.trim(Product.name), r"\s+", " ", "g"))
         == " ".join(name.split()).lower())
     if exclude_id is not None:
         q = q.where(Product.id != exclude_id)
     existing = db.scalar(q.limit(1))
     if existing is not None:
-        hint = (" It is turned off: tick “Show turned-off products”, edit it and turn it back on."
-                if not existing.is_active else
-                " Use that one, or add a detail to this name (e.g. colour, storage, used).")
+        hint = " Use that one, or add a detail to this name (e.g. colour, storage, used)."
         raise HTTPException(status.HTTP_409_CONFLICT,
                             f"A product called “{existing.name}” already exists "
                             f"(SKU {existing.sku}).{hint}")
@@ -377,7 +378,9 @@ def update_product(db: Session, product_id: int, data: ProductUpdate, actor: Use
         _check_category(db, fields["category_id"])
     if fields.get("brand_id") not in (None, product.brand_id):
         _check_brand(db, fields["brand_id"])
-    _check_name_free(db, fields.get("name"), exclude_id=product.id)
+    turning_on = fields.get("is_active") is True and not product.is_active
+    _check_name_free(db, fields.get("name") or (product.name if turning_on else None),
+                     exclude_id=product.id)
     _check_codes_free(db, fields.get("sku"), fields.get("barcode"), exclude_id=product.id)
 
     tracking = fields.get("tracking_type", product.tracking_type)

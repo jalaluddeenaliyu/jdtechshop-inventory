@@ -141,6 +141,12 @@ _Last updated: 15 October 2026 — Phase 5 complete (installing on the shop Mac 
   - ✅ Preview first, with every problem listed by row; all-or-nothing save using the same rules as the screens (product checks, IMEI checks, ledger, audit)
   - ✅ Reads common column names (Item, Qty, Cost…), ₦ and commas in prices, CSV with , or ; — owner only
   - ✅ 9 new automated tests (304 total)
+- ✅ Delete a product added by mistake (Products → Edit → Delete product), owner only
+  - ✅ Never used: deleted completely. Only opening stock so far: that stock is taken back out with a reversal in the ledger (reason kept), phones voided and their IMEIs released, product turned off, name free to reuse
+  - ✅ Bought, sold, returned, adjusted, or on a purchase: refused with an explanation (turn it off instead)
+  - ✅ A removed product can't be turned back on while another product uses its name
+  - ✅ 6 new automated tests (310 total)
+- ✅ "A newer version is available — Reload now" notice, so an open app picks up updates
 
 ## Acceptance tests
 | # | Test | Status |
