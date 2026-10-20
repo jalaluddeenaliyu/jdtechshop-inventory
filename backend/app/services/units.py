@@ -20,7 +20,13 @@ from app.models import (
     UnitStatus,
     User,
 )
-from app.schemas.units import OpeningUnitsIn, UnitOut, UnitUpdate, check_identifier_rules
+from app.schemas.units import (
+    OpeningUnitsIn,
+    UnitIn,
+    UnitOut,
+    UnitUpdate,
+    check_identifier_rules,
+)
 from app.services import stock as stock_service
 from app.services.catalog import like_pattern
 
@@ -114,32 +120,12 @@ def add_opening_units(db: Session, product_id: int, data: OpeningUnitsIn, actor:
             "closed. New units arrive through purchases.",
         )
 
-    check_identifiers_free(db, [
-        (f"Row {i}: ", u.serial_number, u.imei1, u.imei2) for i, u in enumerate(data.units, 1)
-    ])
-
-    units: list[ProductUnit] = []
     try:
-        for u in data.units:
-            unit = ProductUnit(product_id=product.id, serial_number=u.serial_number, imei1=u.imei1,
-                               imei2=u.imei2, condition=u.condition, unit_cost=u.unit_cost,
-                               notes=u.notes, status=UnitStatus.IN_STOCK, created_by_id=actor.id)
-            db.add(unit)
-            db.flush()
-            stock_service.record_movement(db, product, quantity_change=1,
-                                          movement_type=MovementType.OPENING, user=actor,
-                                          unit_cost=u.unit_cost, unit_id=unit.id, reason=data.note)
-            units.append(unit)
-        db.flush()
+        units = register_opening_units(db, product, data.units, note=data.note, actor=actor,
+                                       request=request)
     except IntegrityError:
         db.rollback()
         raise _RACE
-
-    audit.record(db, action="stock.opening_units", user=actor, entity_type="product",
-                 entity_id=product.id,
-                 details={"count": len(units), "unit_ids": [u.id for u in units],
-                          "total_cost": str(sum(u.unit_cost for u in units))},
-                 request=request)
     try:
         db.commit()
     except IntegrityError:
@@ -147,6 +133,36 @@ def add_opening_units(db: Session, product_id: int, data: OpeningUnitsIn, actor:
         raise _RACE
     db.refresh(product)
     return product, units
+
+
+def register_opening_units(db: Session, product: Product, units_in: list[UnitIn], *,
+                           note: str | None, actor: User,
+                           request: Request | None, label=lambda i: f"Row {i}: ",
+                           ) -> list[ProductUnit]:
+    """Add opening units to a (locked) serial/IMEI product: identifier checks, one ledger
+    movement per unit, one audit entry. Does not commit. May raise HTTPException, or
+    IntegrityError if another unit took an identifier at the same moment."""
+    check_identifiers_free(db, [
+        (label(i), u.serial_number, u.imei1, u.imei2) for i, u in enumerate(units_in, 1)
+    ])
+    units: list[ProductUnit] = []
+    for u in units_in:
+        unit = ProductUnit(product_id=product.id, serial_number=u.serial_number, imei1=u.imei1,
+                           imei2=u.imei2, condition=u.condition, unit_cost=u.unit_cost,
+                           notes=u.notes, status=UnitStatus.IN_STOCK, created_by_id=actor.id)
+        db.add(unit)
+        db.flush()
+        stock_service.record_movement(db, product, quantity_change=1,
+                                      movement_type=MovementType.OPENING, user=actor,
+                                      unit_cost=u.unit_cost, unit_id=unit.id, reason=note)
+        units.append(unit)
+    db.flush()
+    audit.record(db, action="stock.opening_units", user=actor, entity_type="product",
+                 entity_id=product.id,
+                 details={"count": len(units), "unit_ids": [u.id for u in units],
+                          "total_cost": str(sum(u.unit_cost for u in units))},
+                 request=request)
+    return units
 
 
 def update_unit(db: Session, unit_id: int, data: UnitUpdate, actor: User,

@@ -8,6 +8,7 @@ A private web application for JD TechShop's stock, sales, customers, suppliers a
 - **What is built so far:** [`docs/CHECKLIST.md`](docs/CHECKLIST.md)
 - **Running it in the shop (HTTPS, auto-start, daily backups):** [`docs/PRODUCTION.md`](docs/PRODUCTION.md)
 - **Backups:** [`docs/BACKUP_RESTORE.md`](docs/BACKUP_RESTORE.md)
+- **Bringing in your existing stock:** Products → *Import from Excel* (download the template, fill it in, upload)
 - **Online instead, for free (Render + Neon):** [`docs/DEPLOY_RENDER_NEON.md`](docs/DEPLOY_RENDER_NEON.md)
 
 ---

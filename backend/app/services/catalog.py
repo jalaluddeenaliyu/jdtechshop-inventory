@@ -331,7 +331,7 @@ def _next_sku(db: Session) -> str:
 
 
 def create_product(db: Session, data: ProductCreate, actor: User,
-                   request: Request | None) -> Product:
+                   request: Request | None, *, commit: bool = True) -> Product:
     _check_category(db, data.category_id)
     _check_brand(db, data.brand_id)
     _check_name_free(db, data.name)
@@ -358,6 +358,9 @@ def create_product(db: Session, data: ProductCreate, actor: User,
         add_opening_stock(db, product, data.opening_quantity, data.opening_unit_cost,
                           note="Entered when the product was added", actor=actor,
                           request=request)
+    if not commit:  # part of a bigger transaction (e.g. a spreadsheet import)
+        db.flush()
+        return product
     db.commit()
     db.refresh(product)
     return product

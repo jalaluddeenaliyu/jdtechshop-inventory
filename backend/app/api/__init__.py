@@ -7,6 +7,7 @@ from app.api import (
     debts,
     expenses,
     health,
+    product_import,
     products,
     purchasing,
     reports,
@@ -24,6 +25,7 @@ api_router.include_router(auth.router)
 api_router.include_router(users.router)
 api_router.include_router(settings.router)
 api_router.include_router(catalog.router)
+api_router.include_router(product_import.router)
 api_router.include_router(products.router)
 api_router.include_router(stock.router)
 api_router.include_router(units.router)

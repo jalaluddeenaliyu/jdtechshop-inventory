@@ -136,6 +136,11 @@ _Last updated: 15 October 2026 — Phase 5 complete (installing on the shop Mac 
 - ✅ Fixed: a dialog that opens right after another closes (Add product → Add units) no longer shuts itself
 - ✅ Product table fits phones, tablets and laptops (actions move under the name on narrow screens)
 - ✅ 12 new automated tests (295 total)
+- ✅ Import from Excel/CSV (Products → Import from Excel): downloadable template (Products / Example / How to fill sheets, drop-downs, IMEI columns kept as text)
+  - ✅ Accessories one row each (quantity + cost); phones/laptops one row per unit with IMEI or serial and its own cost; missing categories and brands created
+  - ✅ Preview first, with every problem listed by row; all-or-nothing save using the same rules as the screens (product checks, IMEI checks, ledger, audit)
+  - ✅ Reads common column names (Item, Qty, Cost…), ₦ and commas in prices, CSV with , or ; — owner only
+  - ✅ 9 new automated tests (304 total)
 
 ## Acceptance tests
 | # | Test | Status |

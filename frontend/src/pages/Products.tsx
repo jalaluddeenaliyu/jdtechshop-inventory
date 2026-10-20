@@ -1,4 +1,4 @@
-import { History, PackagePlus, Pencil, Plus, ScanLine, Search, Tags, Truck } from "lucide-react";
+import { FileSpreadsheet, History, PackagePlus, Pencil, Plus, ScanLine, Search, Tags, Truck } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -28,6 +28,7 @@ import {
 import { useAuth } from "../lib/auth";
 import { naira } from "../lib/format";
 import { CatalogManager } from "./CatalogManager";
+import { ImportProducts } from "./ImportProducts";
 import { AddUnitsForm } from "./Units";
 
 const PAGE_SIZE = 25;
@@ -54,6 +55,7 @@ type Mode =
   | { kind: "opening"; product: Product }
   | { kind: "units"; product: Product }
   | { kind: "catalog" }
+  | { kind: "import" }
   | null;
 
 /** Top-level categories, each followed by its subcategories (indented). */
@@ -135,6 +137,9 @@ export function ProductsPage() {
             <>
               <Button variant="secondary" onClick={() => setMode({ kind: "catalog" })}>
                 <Tags className="size-4" aria-hidden /> Categories & brands
+              </Button>
+              <Button variant="secondary" onClick={() => { setFlash(null); setMode({ kind: "import" }); }}>
+                <FileSpreadsheet className="size-4" aria-hidden /> Import from Excel
               </Button>
               <Button onClick={() => { setFlash(null); setMode({ kind: "add" }); }}>
                 <Plus className="size-4" aria-hidden /> Add product
@@ -259,6 +264,11 @@ export function ProductsPage() {
             onDone={(p, count) => done(`Added ${count} ${count === 1 ? "unit" : "units"} of ${p.name}. ${p.qty_on_hand} now in stock.`)} />
         )}
       </Dialog>
+      <Dialog extraWide open={mode?.kind === "import"} title="Import products from Excel" onClose={() => setMode(null)}>
+        {mode?.kind === "import" && (
+          <ImportProducts onDone={(message) => { setSearch(""); setFilters(NO_FILTERS); setPage(1); loadLookups(); done(message); }} />
+        )}
+      </Dialog>
       <Dialog wide open={mode?.kind === "catalog"} title="Categories & brands"
         onClose={() => { setMode(null); loadLookups(); load(); }}>
         {mode?.kind === "catalog" && <CatalogManager onChanged={loadLookups} />}
@@ -380,7 +390,7 @@ function ProductTable({
         {filtered
           ? "No products match these filters."
           : isOwner
-            ? "No products yet. Use “Add product” to create your first one."
+            ? "No products yet. Use “Add product”, or “Import from Excel” to bring in your whole stock list at once."
             : "No products have been added yet."}
       </div>
     );

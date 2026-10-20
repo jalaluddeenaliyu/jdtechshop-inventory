@@ -22,16 +22,17 @@ export function setUnauthorizedHandler(fn: (() => void) | null) {
 
 async function request<T>(method: Method, path: string, body?: unknown): Promise<T> {
   let res: Response;
+  const isForm = body instanceof FormData; // file uploads: the browser sets the content type
   try {
     res = await fetch(`/api${path}`, {
       method,
       credentials: "same-origin",
       headers: {
         Accept: "application/json",
-        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...(body !== undefined && !isForm ? { "Content-Type": "application/json" } : {}),
         ...(method !== "GET" ? { "X-JDT-Client": "web" } : {}),
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
     });
   } catch {
     throw new ApiError(0, "Cannot reach the server. Check that the backend is running and try again.");
@@ -63,6 +64,12 @@ export const api = {
   put: <T,>(path: string, body: unknown) => request<T>("PUT", path, body),
   patch: <T,>(path: string, body: unknown) => request<T>("PATCH", path, body),
   del: <T,>(path: string) => request<T>("DELETE", path),
+  /** POST a file as multipart form data (field name "file"). */
+  upload: <T,>(path: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<T>("POST", path, form);
+  },
 };
 
 /** "?a=1&b=x" from an object, leaving out empty values. */
