@@ -217,6 +217,11 @@ export function Dialog({
   extraWide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  // The browser fires "close" a moment after the app closes a dialog itself. By then the app
+  // may already have opened the next dialog (e.g. Add product → Add units), so only treat
+  // "close" as the person closing it while this dialog is still meant to be open.
+  const openRef = useRef(open);
+  openRef.current = open;
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
@@ -235,7 +240,7 @@ export function Dialog({
       ref={ref}
       // React passes these events up to parent dialogs too: only react to our own.
       onClose={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget && openRef.current) onClose();
       }}
       onCancel={(e) => {
         if (e.target !== e.currentTarget) return;

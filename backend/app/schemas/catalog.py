@@ -153,6 +153,11 @@ class ProductOut(BaseModel):
     condition: ConditionName | None
     selling_price: Decimal
     avg_cost: Decimal | None  # hidden (null) for sales staff
+    # Owner only (null for staff). What the stock on hand cost: quantity items at their weighted
+    # average, phones/laptops as the sum of each unit's own cost. cost_each = stock_value / qty
+    # (or the last known average when nothing is in stock).
+    stock_value: Decimal | None = None
+    cost_each: Decimal | None = None
     qty_on_hand: int
     reorder_level: int | None
     effective_reorder_level: int
@@ -165,7 +170,9 @@ class ProductOut(BaseModel):
 
 
 class ProductCreate(BaseModel):
-    """Stock quantity and cost are NOT accepted here: they only change through the stock ledger."""
+    """Stock never changes by editing a product. The only stock accepted here is the optional
+    opening stock of a NEW quantity-counted product, which is recorded through the stock ledger
+    in the same transaction (exactly as the separate opening-stock endpoint would)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -181,12 +188,33 @@ class ProductCreate(BaseModel):
     condition: ConditionName | None = None
     selling_price: Decimal = Field(ge=0, max_digits=12, decimal_places=2)
     reorder_level: int | None = Field(default=None, ge=0, le=100000)
+    # Optional opening stock (quantity-counted products only): both or neither.
+    opening_quantity: int | None = Field(default=None, ge=1, le=1_000_000)
+    opening_unit_cost: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=4)
 
     _blank = field_validator(*_PRODUCT_TEXT, mode="before")(_blank_to_none)
     _n = field_validator("name")(_clean_name)
     _s = field_validator("sku")(_clean_sku)
     _b = field_validator("barcode")(_clean_barcode)
     _p = field_validator("selling_price")(to_kobo)
+
+    @field_validator("opening_quantity", "opening_unit_cost", mode="before")
+    @classmethod
+    def _blank_opening(cls, v):
+        return None if isinstance(v, str) and not v.strip() else v
+
+    @model_validator(mode="after")
+    def _opening_rules(self):
+        q, c = self.opening_quantity, self.opening_unit_cost
+        if (q is None) != (c is None):
+            raise ValueError("Enter what each one cost you." if c is None
+                             else "Enter how many you have now.")
+        if q is not None and self.tracking_type == "serialized":
+            raise ValueError("Phones and other serial/IMEI items are added unit by unit, each "
+                             "with its IMEI and cost, after the product is created.")
+        if c is not None:
+            self.opening_unit_cost = c.quantize(Decimal("0.0001"))
+        return self
 
 
 class ProductUpdate(_NoNulls):

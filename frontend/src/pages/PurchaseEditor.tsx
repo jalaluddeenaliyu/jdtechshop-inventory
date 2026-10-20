@@ -1,6 +1,6 @@
 import { ArrowLeft, Banknote, Plus, RotateCcw, Search, Send, Trash2, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { flushSync } from "react-dom";
 import { Badge, Button, Dialog, Notice, PageHeader, Panel, SelectInput, Spinner, TextArea, TextInput } from "../components/ui";
 import {
@@ -19,7 +19,7 @@ import {
 import { dateOnly, dateTime, naira, todayISO } from "../lib/format";
 import { ReverseForm, SupplierReturnForm } from "./Corrections";
 import { statusBadge } from "./Purchases";
-import { PaymentForm } from "./Suppliers";
+import { PaymentForm, SupplierForm } from "./Suppliers";
 
 /** /purchases/new and /purchases/:id — edit a draft, or view a posted purchase. */
 export function PurchaseEditorPage() {
@@ -126,11 +126,22 @@ function DraftEditor({ purchase, onPosted }: { purchase: Purchase | null; onPost
   const [lineErrors, setLineErrors] = useState<Record<number, string>>({});
   const [flash, setFlash] = useState<string | null>(null);
   const [busy, setBusy] = useState<"save" | "post" | "discard" | null>(null);
+  const [addingSupplier, setAddingSupplier] = useState(false);
   const linesRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api.get<Supplier[]>("/suppliers").then(setSuppliers).catch(() => {});
   }, []);
+
+  // "Restock" on the Products page opens a new purchase with that product already added.
+  const [params] = useSearchParams();
+  const restockId = !purchase ? params.get("product") : null;
+  const restockDone = useRef(false);
+  useEffect(() => {
+    if (!restockId || !/^\d+$/.test(restockId) || restockDone.current) return;
+    restockDone.current = true; // add it once, even if this effect runs twice
+    api.get<Product>(`/products/${restockId}`).then(addProduct).catch(() => {});
+  }, [restockId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const additional = money(header.additional_costs) || 0;
   const landed = previewLanded(lines, additional);
@@ -295,11 +306,24 @@ function DraftEditor({ purchase, onPosted }: { purchase: Purchase | null; onPost
               value={header.additional_costs} onChange={(e) => setHeader({ ...header, additional_costs: e.target.value })}
               hint="Shared across the items by value." />
           </div>
-          {!suppliers.length && (
-            <p className="mt-3 text-sm text-muted">
-              No suppliers yet — <Link to="/suppliers" className="text-board underline">add one on the Suppliers page</Link>.
-            </p>
-          )}
+          <p className="mt-3 text-sm text-muted">
+            {!suppliers.length && "No suppliers yet. "}
+            <button type="button" className="text-board underline underline-offset-2 hover:text-board-600"
+              onClick={() => setAddingSupplier(true)}>
+              + Add a new supplier
+            </button>
+            {" "}without leaving this page.
+          </p>
+          <Dialog open={addingSupplier} title="New supplier" onClose={() => setAddingSupplier(false)}>
+            {addingSupplier && (
+              <SupplierForm onDone={(s) => {
+                setSuppliers((list) => [...list, s].sort((a, b) => a.name.localeCompare(b.name)));
+                setHeader((h) => ({ ...h, supplier_id: String(s.id) }));
+                setAddingSupplier(false);
+                setFlash(`Added supplier ${s.name}.`);
+              }} />
+            )}
+          </Dialog>
         </Panel>
 
         <Panel title="Items">

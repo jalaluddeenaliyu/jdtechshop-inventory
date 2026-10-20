@@ -137,17 +137,25 @@ def record_opening_stock(db: Session, product_id: int, data: OpeningStockIn, act
             "Opening stock can only be entered once, before any other stock movement. "
             "Use a stock adjustment to correct the quantity.",
         )
-    movement = record_movement(db, product, quantity_change=data.quantity,
+    add_opening_stock(db, product, data.quantity, data.unit_cost, note=data.note, actor=actor,
+                      request=request)
+    db.commit()
+    return product
+
+
+def add_opening_stock(db: Session, product: Product, quantity: int, unit_cost: Decimal, *,
+                      note: str | None, actor: User, request: Request | None) -> StockMovement:
+    """Write the opening-stock ledger row and its audit entry. Does not commit."""
+    movement = record_movement(db, product, quantity_change=quantity,
                                movement_type=MovementType.OPENING, user=actor,
-                               unit_cost=data.unit_cost, reason=data.note)
+                               unit_cost=unit_cost, reason=note)
     db.flush()
     audit.record(db, action="stock.opening", user=actor, entity_type="product",
                  entity_id=product.id,
-                 details={"quantity": data.quantity, "unit_cost": str(data.unit_cost),
+                 details={"quantity": quantity, "unit_cost": str(unit_cost),
                           "movement_id": movement.id},
                  request=request)
-    db.commit()
-    return product
+    return movement
 
 
 def list_movements(db: Session, *, product_id: int | None = None,

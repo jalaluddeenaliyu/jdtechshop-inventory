@@ -1,4 +1,4 @@
-import { History, PackagePlus, Pencil, Plus, ScanLine, Search, Tags } from "lucide-react";
+import { History, PackagePlus, Pencil, Plus, ScanLine, Search, Tags, Truck } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -26,7 +26,7 @@ import {
   type TrackingType,
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { naira, trackingLabel } from "../lib/format";
+import { naira } from "../lib/format";
 import { CatalogManager } from "./CatalogManager";
 import { AddUnitsForm } from "./Units";
 
@@ -227,7 +227,18 @@ export function ProductsPage() {
       <Dialog wide open={mode?.kind === "add"} title="Add product" onClose={() => setMode(null)}>
         {mode?.kind === "add" && (
           <ProductForm categories={categories} brands={brands}
-            onDone={(p) => done(`Added ${p.name} (SKU ${p.sku}).${p.tracking_type === "quantity" ? " You can now enter its opening stock." : ""}`)} />
+            onDone={(p) => {
+              if (p.tracking_type === "serialized") {
+                // Phones/laptops: go straight on to scanning each unit's IMEI and cost.
+                setFlash(`Added ${p.name}. Now scan or type each unit's IMEI or serial number and what it cost.`);
+                setMode({ kind: "units", product: p });
+                load();
+              } else {
+                done(p.qty_on_hand > 0
+                  ? `Added ${p.name} with ${p.qty_on_hand} in stock (SKU ${p.sku}).`
+                  : `Added ${p.name} (SKU ${p.sku}). Use “Add stock” on its row when you have some.`);
+              }
+            }} />
         )}
       </Dialog>
       <Dialog wide open={mode?.kind === "edit"} title="Edit product" onClose={() => setMode(null)}>
@@ -236,10 +247,10 @@ export function ProductsPage() {
             onDone={(p) => done(`Saved changes to ${p.name}.`)} />
         )}
       </Dialog>
-      <Dialog open={mode?.kind === "opening"} title="Opening stock" onClose={() => setMode(null)}>
+      <Dialog open={mode?.kind === "opening"} title="Add stock you already have" onClose={() => setMode(null)}>
         {mode?.kind === "opening" && (
           <OpeningStockForm product={mode.product}
-            onDone={(p) => done(`Recorded opening stock: ${p.qty_on_hand} × ${p.name}.`)} />
+            onDone={(p) => done(`Added stock: ${p.qty_on_hand} × ${p.name}.`)} />
         )}
       </Dialog>
       <Dialog extraWide open={mode?.kind === "units"} title="Add units" onClose={() => setMode(null)}>
@@ -286,11 +297,67 @@ function FilterSelect({
 
 function StockCell({ p }: { p: Product }) {
   return (
-    <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+    <div className="flex flex-col-reverse items-end gap-1 sm:flex-row sm:items-center sm:justify-end sm:gap-2 whitespace-nowrap">
       {p.is_active && p.qty_on_hand === 0 && <Badge tone="alert">Out</Badge>}
       {p.is_active && p.qty_on_hand > 0 && p.is_low_stock && <Badge tone="pad">Low</Badge>}
       <span className="num font-medium">{p.qty_on_hand}</span>
     </div>
+  );
+}
+
+function hasCost(p: Product) {
+  return p.cost_each != null && Number(p.cost_each) > 0;
+}
+
+/** Cost price with the profit each sale makes at today's selling price. */
+function CostCell({ p }: { p: Product }) {
+  if (!hasCost(p)) {
+    return <td className="hidden md:table-cell px-2 sm:px-4 py-3 text-right text-sm text-muted whitespace-nowrap">Not yet known</td>;
+  }
+  const cost = Number(p.cost_each);
+  const profit = Number(p.selling_price) - cost;
+  return (
+    <td className="hidden md:table-cell px-2 sm:px-4 py-3 text-right whitespace-nowrap">
+      <div className="num">{naira(cost)}</div>
+      <div className={`text-sm num ${profit < 0 ? "text-alert font-medium" : "text-muted"}`}>
+        {profit < 0 ? `Loss ${naira(-profit)}` : `Profit ${naira(profit)}`}
+      </div>
+    </td>
+  );
+}
+
+function ProductActions({ p, onEdit, onOpening }: {
+  p: Product;
+  onEdit: (p: Product) => void;
+  onOpening: (p: Product) => void;
+}) {
+  return (
+    <>
+        {p.tracking_type === "quantity" && p.opening_stock_open && (
+          <Button variant="ghost" className="h-8 whitespace-nowrap" onClick={() => onOpening(p)}>
+            <PackagePlus className="size-4" aria-hidden /> Add stock
+          </Button>
+        )}
+        {p.tracking_type === "serialized" && p.opening_stock_open && (
+          <Button variant="ghost" className="h-8 whitespace-nowrap" onClick={() => onOpening(p)}>
+            <ScanLine className="size-4" aria-hidden /> Add units
+          </Button>
+        )}
+        {!p.opening_stock_open && p.is_active && (
+          <Link to={`/purchases/new?product=${p.id}`} title="Record stock bought from a supplier"
+            className="inline-flex items-center gap-2 rounded-md px-3 h-8 text-sm font-medium text-board hover:bg-board/5 whitespace-nowrap">
+            <Truck className="size-4" aria-hidden /> Restock
+          </Link>
+        )}
+        <Link to={p.tracking_type === "serialized" ? `/inventory?tab=units&product=${p.id}` : `/inventory?product=${p.id}`}
+          title="Stock history"
+          className="inline-flex items-center gap-2 rounded-md px-3 h-8 text-sm font-medium text-board hover:bg-board/5">
+          <History className="size-4" aria-hidden /><span className="sr-only">History</span>
+        </Link>
+        <Button variant="ghost" className="h-8" title="Edit product" onClick={() => onEdit(p)}>
+          <Pencil className="size-4" aria-hidden /><span className="sr-only">Edit</span>
+        </Button>
+    </>
   );
 }
 
@@ -323,19 +390,18 @@ function ProductTable({
       <table className="w-full text-left text-[15px]">
         <thead className="border-b border-line text-sm text-muted">
           <tr>
-            <th className="px-4 py-3 font-medium">Product</th>
-            <th className="hidden md:table-cell px-4 py-3 font-medium">Category</th>
-            <th className="hidden md:table-cell px-4 py-3 font-medium">Tracking</th>
-            <th className="px-4 py-3 font-medium text-right">Price</th>
-            {isOwner && <th className="px-4 py-3 font-medium text-right">Avg cost</th>}
-            <th className="px-4 py-3 font-medium text-right">In stock</th>
-            {isOwner && <th className="px-4 py-3"><span className="sr-only">Actions</span></th>}
+            <th className="px-2 sm:px-4 py-3 font-medium">Product</th>
+            <th className="px-2 sm:px-4 py-3 font-medium text-right">Selling price</th>
+            {isOwner && <th className="hidden md:table-cell px-2 sm:px-4 py-3 font-medium text-right">Cost price</th>}
+            <th className="px-2 sm:px-4 py-3 font-medium text-right">In stock</th>
+            {isOwner && <th className="hidden xl:table-cell px-2 sm:px-4 py-3 font-medium text-right">Stock value</th>}
+            {isOwner && <th className="hidden min-[1340px]:table-cell px-2 sm:px-4 py-3"><span className="sr-only">Actions</span></th>}
           </tr>
         </thead>
         <tbody>
           {products.map((p) => (
             <tr key={p.id} className={`border-b border-line last:border-0 align-top ${p.is_active ? "" : "text-muted"}`}>
-              <td className="px-4 py-3 md:min-w-56">
+              <td className="px-2 sm:px-4 py-3 xl:min-w-56">
                 <div className="font-medium">
                   {p.name}
                   {!p.is_active && <span className="ml-2"><Badge tone="off">Turned off</Badge></span>}
@@ -345,40 +411,32 @@ function ProductTable({
                   {p.brand_name && <> · {p.brand_name}</>}
                   {p.model && <> · {p.model}</>}
                   {p.condition && p.condition !== "new" && <> · {p.condition}</>}
-                  {p.category_name && <span className="md:hidden"> · {p.category_name}</span>}
+                  {p.category_name && <span> · {p.category_name}</span>}
+                  {p.tracking_type === "serialized" && <span> · Serial/IMEI</span>}
                 </div>
+                {isOwner && (
+                  <div className="min-[1340px]:hidden mt-1.5 -ml-3 flex flex-wrap gap-0.5">
+                    <ProductActions p={p} onEdit={onEdit} onOpening={onOpening} />
+                  </div>
+                )}
               </td>
-              <td className="hidden md:table-cell px-4 py-3 text-muted">{p.category_name ?? "—"}</td>
-              <td className="hidden md:table-cell px-4 py-3 whitespace-nowrap">
-                <Badge tone={p.tracking_type === "serialized" ? "pad" : "neutral"}>{trackingLabel(p.tracking_type)}</Badge>
+              <td className="px-2 sm:px-4 py-3 text-right num whitespace-nowrap">
+                {naira(p.selling_price)}
+                {isOwner && hasCost(p) && (
+                  <div className="md:hidden text-sm text-muted">Cost {naira(p.cost_each)}</div>
+                )}
               </td>
-              <td className="px-4 py-3 text-right num whitespace-nowrap">{naira(p.selling_price)}</td>
+              {isOwner && <CostCell p={p} />}
+              <td className="px-2 sm:px-4 py-3"><StockCell p={p} /></td>
               {isOwner && (
-                <td className="px-4 py-3 text-right num whitespace-nowrap text-muted">
-                  {p.qty_on_hand > 0 ? naira(p.avg_cost) : "—"}
+                <td className="hidden xl:table-cell px-2 sm:px-4 py-3 text-right num whitespace-nowrap">
+                  {p.qty_on_hand > 0 && hasCost(p) ? naira(p.stock_value) : "—"}
                 </td>
               )}
-              <td className="px-4 py-3"><StockCell p={p} /></td>
               {isOwner && (
-                <td className="px-4 py-2">
+                <td className="hidden min-[1340px]:table-cell px-2 sm:px-4 py-2">
                   <div className="flex justify-end gap-1">
-                    {p.tracking_type === "quantity" && p.opening_stock_open && (
-                      <Button variant="ghost" className="h-8 whitespace-nowrap" onClick={() => onOpening(p)}>
-                        <PackagePlus className="size-4" aria-hidden /> Opening stock
-                      </Button>
-                    )}
-                    {p.tracking_type === "serialized" && p.opening_stock_open && (
-                      <Button variant="ghost" className="h-8 whitespace-nowrap" onClick={() => onOpening(p)}>
-                        <ScanLine className="size-4" aria-hidden /> Add units
-                      </Button>
-                    )}
-                    <Link to={p.tracking_type === "serialized" ? `/inventory?tab=units&product=${p.id}` : `/inventory?product=${p.id}`}
-                      className="inline-flex items-center gap-2 rounded-md px-3 h-8 text-sm font-medium text-board hover:bg-board/5">
-                      <History className="size-4" aria-hidden /> History
-                    </Link>
-                    <Button variant="ghost" className="h-8" onClick={() => onEdit(p)}>
-                      <Pencil className="size-4" aria-hidden /> Edit
-                    </Button>
+                    <ProductActions p={p} onEdit={onEdit} onOpening={onOpening} />
                   </div>
                 </td>
               )}
@@ -393,6 +451,8 @@ function ProductTable({
 // ---------------- Add / edit product ----------------
 
 type ProductFormState = {
+  opening_quantity: string;
+  opening_unit_cost: string;
   name: string;
   sku: string;
   barcode: string;
@@ -410,6 +470,8 @@ type ProductFormState = {
 
 function initialForm(p?: Product): ProductFormState {
   return {
+    opening_quantity: "",
+    opening_unit_cost: "",
     name: p?.name ?? "",
     sku: p?.sku ?? "",
     barcode: p?.barcode ?? "",
@@ -483,7 +545,13 @@ function ProductForm({
       description: form.description,
     };
     if (editing) body.is_active = form.is_active;
-    else if (!form.sku.trim()) delete body.sku; // let the server generate one
+    else {
+      if (!form.sku.trim()) delete body.sku; // let the server generate one
+      if (form.tracking_type === "quantity" && (form.opening_quantity.trim() || form.opening_unit_cost.trim())) {
+        body.opening_quantity = form.opening_quantity.trim() === "" ? null : Number(form.opening_quantity);
+        body.opening_unit_cost = form.opening_unit_cost.replaceAll(",", "").trim() || null;
+      }
+    }
     try {
       const saved = editing
         ? await api.patch<Product>(`/products/${product.id}`, body)
@@ -530,9 +598,33 @@ function ProductForm({
         )}
       </fieldset>
 
+      {!editing && form.tracking_type === "quantity" && (
+        <div className="rounded-md border border-line bg-paper/60 p-4">
+          <p className="text-sm font-medium">Stock you have now</p>
+          <p className="text-sm text-muted">Leave blank if you have none yet. Later stock comes in through Restock (a purchase).</p>
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            <TextInput label="How many do you have?" type="number" inputMode="numeric" min={1} step={1}
+              value={form.opening_quantity} error={errors.opening_quantity} onChange={set("opening_quantity")}
+              placeholder="e.g. 20" />
+            <TextInput label="Cost price, each (₦)" inputMode="decimal" value={form.opening_unit_cost}
+              error={errors.opening_unit_cost} onChange={set("opening_unit_cost")} placeholder="What you paid for one" />
+          </div>
+        </div>
+      )}
+      {!editing && form.tracking_type === "serialized" && (
+        <div className="rounded-md border border-line bg-paper/60 p-4 text-sm">
+          <p className="font-medium">Next: add the units you have</p>
+          <p className="text-muted">After you click “Add product”, you’ll type or scan each phone’s IMEI (or serial number) and what that unit cost you.</p>
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2">
-        <TextInput label="Selling price (₦)" inputMode="decimal" value={form.selling_price}
-          error={errors.selling_price} onChange={set("selling_price")} placeholder="0.00" />
+        <div>
+          <TextInput label="Selling price (₦)" inputMode="decimal" value={form.selling_price}
+            error={errors.selling_price} onChange={set("selling_price")} placeholder="0.00" />
+          <ProfitHint price={form.selling_price}
+            cost={!editing ? form.opening_unit_cost : product?.cost_each ?? ""} />
+        </div>
         {form.tracking_type === "quantity" ? (
           <SelectInput label="Condition" value={form.condition} onChange={set("condition")}>
             <option value="new">New</option>
@@ -574,6 +666,22 @@ function ProductForm({
         <Button type="submit" loading={busy}>{editing ? "Save changes" : "Add product"}</Button>
       </div>
     </form>
+  );
+}
+
+/** "Profit ₦X each (Y%)" under the selling price, once a cost is known. */
+function ProfitHint({ price, cost }: { price: string; cost: string }) {
+  const p = Number(price.replaceAll(",", "").trim());
+  const c = Number(String(cost).replaceAll(",", "").trim());
+  if (!price.trim() || !String(cost).trim() || !Number.isFinite(p) || !Number.isFinite(c) || c <= 0) return null;
+  const profit = p - c;
+  const margin = p > 0 ? Math.round((profit / p) * 100) : 0;
+  return (
+    <p className={`mt-1.5 text-sm ${profit < 0 ? "text-alert font-medium" : "text-muted"}`}>
+      {profit < 0
+        ? `This sells at a loss of ${naira(-profit)} each.`
+        : `Profit ${naira(profit)} each (${margin}% of the price).`}
+    </p>
   );
 }
 

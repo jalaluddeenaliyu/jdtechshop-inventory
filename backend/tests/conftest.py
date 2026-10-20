@@ -54,6 +54,14 @@ def migrated_database():
 
 
 @pytest.fixture(autouse=True)
+def _reset_default_product_names():
+    from tests import test_products
+
+    test_products.DEFAULT_NAMES_USED.clear()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def clean_tables():
     with engine.begin() as conn:
         conn.execute(text(

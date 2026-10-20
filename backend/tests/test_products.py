@@ -1,9 +1,28 @@
 """Products: creation rules, editing, search, filters and low stock."""
+import itertools
+
 import pytest
 
 
+# Product names are unique. Tests that make several default products get "… #2", "… #3";
+# the first one in each test keeps the plain name (conftest clears this between tests).
+DEFAULT_NAMES_USED: set[str] = set()
+
+
+def _default_name() -> str:
+    base = "Oraimo 20W charger"
+    name = base
+    for n in itertools.count(2):
+        if name not in DEFAULT_NAMES_USED:
+            break
+        name = f"{base} #{n}"
+    DEFAULT_NAMES_USED.add(name)
+    return name
+
+
 def make_product(client, **overrides) -> dict:
-    body = {"name": "Oraimo 20W charger", "tracking_type": "quantity", "selling_price": "6500"}
+    body = {"name": overrides.get("name") or _default_name(), "tracking_type": "quantity",
+            "selling_price": "6500"}
     body.update(overrides)
     r = client.post("/api/products", json=body)
     assert r.status_code == 201, r.text

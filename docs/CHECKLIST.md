@@ -126,6 +126,17 @@ _Last updated: 15 October 2026 — Phase 5 complete (installing on the shop Mac 
   - ⬜ (you) Install on the shop Mac: move the folder, auto-start, Caddy, trust the certificate on each device
   - ⬜ (you) First real-paper print of a receipt and a report
 
+## After launch — usability fixes (20 October 2026)
+- ✅ Add product asks "How many do you have?" and "Cost price, each" — saved with the product in one step (one ledger movement, same rules as opening stock)
+- ✅ Adding a phone/laptop goes straight on to entering each unit's IMEI and cost
+- ✅ Products list: Cost price with profit (or loss) per item, In stock, Stock value; phones valued from each unit's own cost, matching the reports
+- ✅ Profit hint under the selling price while adding or editing a product
+- ✅ Restock button: opens a new purchase with the product already on it; add a new supplier without leaving the purchase
+- ✅ Duplicate product names refused (ignoring capitals/spaces), pointing to the existing product
+- ✅ Fixed: a dialog that opens right after another closes (Add product → Add units) no longer shuts itself
+- ✅ Product table fits phones, tablets and laptops (actions move under the name on narrow screens)
+- ✅ 12 new automated tests (295 total)
+
 ## Acceptance tests
 | # | Test | Status |
 |---|------|--------|

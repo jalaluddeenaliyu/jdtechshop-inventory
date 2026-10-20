@@ -3,6 +3,7 @@
 Products never get a quantity or cost here — those change only through the stock ledger
 (`app.services.stock`). Nothing is deleted: categories, brands and products are turned off.
 """
+from decimal import Decimal
 from typing import Literal
 
 from fastapi import HTTPException, Request, status
@@ -23,6 +24,7 @@ from app.models import (
     User,
 )
 from app.models.catalog import PRODUCT_SKU_SEQ
+from app.models.units import ON_HAND_STATUSES
 from app.schemas.catalog import (
     BrandCreate,
     BrandUpdate,
@@ -33,7 +35,7 @@ from app.schemas.catalog import (
     ProductOut,
     ProductUpdate,
 )
-from app.services.stock import has_movements
+from app.services.stock import add_opening_stock, has_movements
 
 UNPROCESSABLE = 422  # Starlette renamed this constant; the number is what matters
 
@@ -202,13 +204,40 @@ def opening_stock_open(db: Session, products: list[Product]) -> dict[int, bool]:
     }
 
 
+def unit_stock_values(db: Session, products: list[Product]) -> dict[int, Decimal]:
+    """Sum of the cost of each serial/IMEI unit on hand, per product (same rule as the reports)."""
+    ids = [p.id for p in products if p.tracking_type == TrackingType.SERIALIZED]
+    if not ids:
+        return {}
+    return dict(db.execute(
+        select(ProductUnit.product_id, func.sum(ProductUnit.unit_cost))
+        .where(ProductUnit.product_id.in_(ids), ProductUnit.status.in_(ON_HAND_STATUSES))
+        .group_by(ProductUnit.product_id)).all())
+
+
+def _valuation(p: Product, unit_values: dict[int, Decimal]) -> tuple[Decimal, Decimal | None]:
+    if p.tracking_type == TrackingType.SERIALIZED:
+        value = Decimal(unit_values.get(p.id) or 0)
+    else:
+        value = Decimal(p.qty_on_hand) * (p.avg_cost or 0)
+    value = value.quantize(Decimal("0.01"))
+    if p.qty_on_hand > 0:
+        each = (value / p.qty_on_hand).quantize(Decimal("0.01"))
+    else:
+        each = p.avg_cost if p.avg_cost and p.avg_cost > 0 else None
+    return value, each
+
+
 def product_out_one(db: Session, p: Product, show_cost: bool) -> ProductOut:
-    return product_out(p, default_reorder_level(db), show_cost, opening_stock_open(db, [p])[p.id])
+    return product_out(p, default_reorder_level(db), show_cost, opening_stock_open(db, [p])[p.id],
+                       unit_values=unit_stock_values(db, [p]) if show_cost else None)
 
 
 def product_out(p: Product, default_reorder: int, show_cost: bool,
-                opening_open: bool = False) -> ProductOut:
+                opening_open: bool = False,
+                unit_values: dict[int, Decimal] | None = None) -> ProductOut:
     level = p.reorder_level if p.reorder_level is not None else default_reorder
+    value, each = _valuation(p, unit_values or {}) if show_cost else (None, None)
     return ProductOut(
         id=p.id, sku=p.sku, barcode=p.barcode, name=p.name,
         category_id=p.category_id, category_name=p.category.name if p.category else None,
@@ -217,6 +246,7 @@ def product_out(p: Product, default_reorder: int, show_cost: bool,
         tracking_type=p.tracking_type, condition=p.condition,
         selling_price=p.selling_price,
         avg_cost=p.avg_cost if show_cost else None,
+        stock_value=value, cost_each=each,
         qty_on_hand=p.qty_on_hand, reorder_level=p.reorder_level,
         effective_reorder_level=level,
         is_low_stock=p.is_active and p.qty_on_hand <= level,
@@ -245,6 +275,27 @@ def _check_brand(db: Session, brand_id: int | None) -> None:
     if not brand.is_active:
         raise HTTPException(UNPROCESSABLE,
                             f"The brand “{brand.name}” is turned off.")
+
+
+def _check_name_free(db: Session, name: str | None, exclude_id: int | None = None) -> None:
+    """One product per name (ignoring capitals and extra spaces), so stock isn't split across
+    two copies of the same item. Different variants should say so in the name
+    (e.g. "iPhone 13 128GB used")."""
+    if not name:
+        return
+    q = select(Product).where(
+        func.lower(func.regexp_replace(func.trim(Product.name), r"\s+", " ", "g"))
+        == " ".join(name.split()).lower())
+    if exclude_id is not None:
+        q = q.where(Product.id != exclude_id)
+    existing = db.scalar(q.limit(1))
+    if existing is not None:
+        hint = (" It is turned off: tick “Show turned-off products”, edit it and turn it back on."
+                if not existing.is_active else
+                " Use that one, or add a detail to this name (e.g. colour, storage, used).")
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"A product called “{existing.name}” already exists "
+                            f"(SKU {existing.sku}).{hint}")
 
 
 def _check_codes_free(db: Session, sku: str | None, barcode: str | None,
@@ -283,9 +334,10 @@ def create_product(db: Session, data: ProductCreate, actor: User,
                    request: Request | None) -> Product:
     _check_category(db, data.category_id)
     _check_brand(db, data.brand_id)
+    _check_name_free(db, data.name)
     _check_codes_free(db, data.sku, data.barcode)
     product = Product(
-        **data.model_dump(exclude={"sku", "condition"}),
+        **data.model_dump(exclude={"sku", "condition", "opening_quantity", "opening_unit_cost"}),
         sku=data.sku or _next_sku(db),
         condition=_condition_for(data.tracking_type, data.condition),
         qty_on_hand=0,
@@ -300,6 +352,12 @@ def create_product(db: Session, data: ProductCreate, actor: User,
                           "tracking_type": product.tracking_type,
                           "selling_price": str(product.selling_price)},
                  request=request)
+    if data.opening_quantity is not None:
+        # Same rules and ledger entry as the separate opening-stock form, in this transaction:
+        # the product and its opening stock are saved together or not at all.
+        add_opening_stock(db, product, data.opening_quantity, data.opening_unit_cost,
+                          note="Entered when the product was added", actor=actor,
+                          request=request)
     db.commit()
     db.refresh(product)
     return product
@@ -316,6 +374,7 @@ def update_product(db: Session, product_id: int, data: ProductUpdate, actor: Use
         _check_category(db, fields["category_id"])
     if fields.get("brand_id") not in (None, product.brand_id):
         _check_brand(db, fields["brand_id"])
+    _check_name_free(db, fields.get("name"), exclude_id=product.id)
     _check_codes_free(db, fields.get("sku"), fields.get("barcode"), exclude_id=product.id)
 
     tracking = fields.get("tracking_type", product.tracking_type)

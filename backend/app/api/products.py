@@ -39,8 +39,9 @@ def list_products(
         page=page, page_size=page_size,
     )
     open_map = catalog_service.opening_stock_open(db, products)
+    unit_values = catalog_service.unit_stock_values(db, products) if user.is_owner else None
     items = [catalog_service.product_out(p, default_reorder, show_cost=user.is_owner,
-                                         opening_open=open_map[p.id])
+                                         opening_open=open_map[p.id], unit_values=unit_values)
              for p in products]
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 

@@ -155,6 +155,10 @@ export interface Product {
   selling_price: string;
   /** null for sales staff: they never see cost prices */
   avg_cost: string | null;
+  /** Owner only: what the stock on hand cost (phones: each unit's own cost). */
+  stock_value: string | null;
+  /** Owner only: cost of one item on hand (or the last known cost when none). */
+  cost_each: string | null;
   qty_on_hand: number;
   reorder_level: number | null;
   effective_reorder_level: number;

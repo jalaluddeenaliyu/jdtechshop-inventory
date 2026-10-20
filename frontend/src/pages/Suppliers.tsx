@@ -174,7 +174,7 @@ export function SuppliersPage() {
   );
 }
 
-function SupplierForm({ supplier, onDone }: { supplier?: Supplier; onDone: (s: Supplier) => void }) {
+export function SupplierForm({ supplier, onDone }: { supplier?: Supplier; onDone: (s: Supplier) => void }) {
   const [form, setForm] = useState({
     name: supplier?.name ?? "",
     phone: supplier?.phone ?? "",
