@@ -244,3 +244,21 @@ class ProductUpdate(_NoNulls):
     @classmethod
     def _n(cls, v: str | None) -> str | None:
         return None if v is None else _clean_name(v)
+
+
+class CostCorrectionIn(BaseModel):
+    """Correct the cost price of the stock on hand (see services/cost_correction.py)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    cost_each: Decimal = Field(ge=0, max_digits=14, decimal_places=4)
+    reason: str | None = Field(default=None, max_length=200)
+    # Phones/laptops: correct just this unit (otherwise every unit of the product in stock).
+    unit_id: int | None = None
+
+    @field_validator("cost_each", mode="before")
+    @classmethod
+    def _clean_money(cls, v):
+        if isinstance(v, str):
+            v = v.replace(",", "").replace("₦", "").strip()
+        return v

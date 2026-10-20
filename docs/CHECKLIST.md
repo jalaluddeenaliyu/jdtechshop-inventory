@@ -147,6 +147,10 @@ _Last updated: 15 October 2026 — Phase 5 complete (installing on the shop Mac 
   - ✅ A removed product can't be turned back on while another product uses its name
   - ✅ 6 new automated tests (310 total)
 - ✅ "A newer version is available — Reload now" notice, so an open app picks up updates
+- ✅ Correct a wrongly entered cost price (owner): Products → Edit → "Cost price, each" (phones: all in stock, or one phone from Inventory → Serial / IMEI units → Edit)
+  - ✅ Changes the cost of stock on hand (stock value and future profit); sales already made keep their frozen cost; sold phones can't be changed
+  - ✅ Shows the stock value before/after while editing; every correction in the Activity log with old/new cost, quantity, value change and reason
+  - ✅ 5 new automated tests (315 total)
 
 ## Acceptance tests
 | # | Test | Status |

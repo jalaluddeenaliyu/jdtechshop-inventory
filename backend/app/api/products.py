@@ -8,10 +8,11 @@ from typing import Literal
 from fastapi import APIRouter, Query, Request
 
 from app.core.deps import DB, CurrentUser, OwnerUser
-from app.schemas.catalog import ProductCreate, ProductOut, ProductUpdate
+from app.schemas.catalog import CostCorrectionIn, ProductCreate, ProductOut, ProductUpdate
 from app.schemas.settings import Page
 from app.schemas.stock import OpeningStockIn, StockMovementOut
 from app.services import catalog as catalog_service
+from app.services import cost_correction
 from app.services import product_removal
 from app.services import stock as stock_service
 from app.services.catalog import ProductSort, StockFilter
@@ -71,6 +72,15 @@ def delete_product(product_id: int, request: Request, owner: OwnerUser, db: DB,
                    reason: str | None = Query(None, max_length=200)) -> dict:
     """Delete a product added by mistake (see services/product_removal.py for the rules)."""
     return product_removal.remove_product(db, product_id, reason, owner, request)
+
+
+@router.post("/{product_id}/cost", response_model=ProductOut)
+def correct_cost(product_id: int, body: CostCorrectionIn, request: Request, owner: OwnerUser,
+                 db: DB) -> ProductOut:
+    """Correct a wrongly entered cost price for the stock on hand. Past sales keep their cost."""
+    cost_correction.correct_cost(db, product_id, body.cost_each, body.reason, owner, request,
+                                 unit_id=body.unit_id)
+    return catalog_service.product_out_one(db, catalog_service.get_product(db, product_id), True)
 
 
 @router.post("/{product_id}/opening-stock", response_model=ProductOut, status_code=201)

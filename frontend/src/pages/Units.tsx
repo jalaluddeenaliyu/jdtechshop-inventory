@@ -344,6 +344,10 @@ function EditUnitForm({ unit, onDone }: { unit: Unit; onDone: (u: Unit) => void 
     condition: unit.condition,
     notes: unit.notes ?? "",
   });
+  // Owners (who can see costs) may correct the cost of a unit that is still in stock.
+  const canFixCost = unit.unit_cost != null && unit.status === "in_stock";
+  const [cost, setCost] = useState(unit.unit_cost != null ? String(Number(unit.unit_cost)) : "");
+  const [costReason, setCostReason] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -357,12 +361,20 @@ function EditUnitForm({ unit, onDone }: { unit: Unit; onDone: (u: Unit) => void 
     setError(null);
     setErrors({});
     try {
-      onDone(await api.patch<Unit>(`/units/${unit.id}`, {
+      let saved = await api.patch<Unit>(`/units/${unit.id}`, {
         ...form,
         serial_number: form.serial_number.trim() || null,
         imei1: form.imei1.trim() || null,
         imei2: form.imei2.trim() || null,
-      }));
+      });
+      const newCost = Number(cost.replaceAll(",", "").replace("₦", "").trim());
+      if (canFixCost && cost.trim() && newCost !== Number(unit.unit_cost)) {
+        await api.post(`/products/${unit.product_id}/cost`, {
+          cost_each: cost.replaceAll(",", "").replace("₦", "").trim(), unit_id: unit.id, reason: costReason,
+        });
+        saved = await api.get<Unit>(`/units/${unit.id}`);
+      }
+      onDone(saved);
     } catch (err) {
       if (err instanceof ApiError) {
         setErrors(err.fieldErrors);
@@ -377,7 +389,9 @@ function EditUnitForm({ unit, onDone }: { unit: Unit; onDone: (u: Unit) => void 
     <form onSubmit={submit} className="space-y-4" noValidate>
       <p className="text-muted">
         Correct a typo in this {unit.product_name}. Every change is recorded in the activity log.
-        Its cost and status change only through purchases, sales and approved adjustments.
+        {canFixCost
+          ? " A cost correction applies to this phone from now on; past sales keep the cost they were sold at."
+          : " Its status changes only through purchases, sales and approved adjustments."}
       </p>
       {error && <Notice tone="error">{error}</Notice>}
       <TextInput label="Serial number" value={form.serial_number} error={errors.serial_number}
@@ -390,6 +404,14 @@ function EditUnitForm({ unit, onDone }: { unit: Unit; onDone: (u: Unit) => void 
         {CONDITIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </SelectInput>
       <TextInput label="Notes" value={form.notes} error={errors.notes} onChange={set("notes")} />
+      {canFixCost && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <TextInput label="Cost price (₦)" inputMode="decimal" value={cost} error={errors.cost_each}
+            onChange={(e) => setCost(e.target.value)} hint="What this phone really cost you." />
+          <TextInput label="Why the cost changed (optional)" value={costReason} maxLength={200}
+            onChange={(e) => setCostReason(e.target.value)} placeholder="e.g. Typed 700000, it was 650000" />
+        </div>
+      )}
       <div className="flex justify-end pt-2">
         <Button type="submit" loading={busy}>Save changes</Button>
       </div>

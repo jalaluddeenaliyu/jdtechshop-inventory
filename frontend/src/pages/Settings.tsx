@@ -12,7 +12,7 @@ import {
   type User,
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { dateTime } from "../lib/format";
+import { dateTime, naira } from "../lib/format";
 
 const TABS = [
   { id: "business", label: "Business details", ownerOnly: false },
@@ -279,6 +279,14 @@ const ACTION_LABELS: Record<string, string> = {
   "settings.updated": "Changed business settings",
   "payment_method.created": "Added payment method",
   "payment_method.updated": "Changed payment method",
+  "product.created": "Added product",
+  "product.updated": "Changed product",
+  "product.cost_corrected": "Corrected cost price",
+  "product.removed": "Removed product (added by mistake)",
+  "product.deleted": "Deleted product",
+  "products.imported": "Imported products from a file",
+  "stock.opening": "Entered opening stock",
+  "stock.opening_units": "Added phones/laptops",
 };
 
 function describe(e: AuditEntry): string {
@@ -287,6 +295,19 @@ function describe(e: AuditEntry): string {
     const reason = String(d.reason ?? "");
     const who = d.username ? ` for “${d.username}”` : "";
     return reason === "locked" ? `Account locked after repeated failures${who}` : `Wrong password or unknown user${who}`;
+  }
+  const reason = d.reason ? ` Reason: ${d.reason}.` : "";
+  if (e.action === "product.cost_corrected") {
+    const what = d.cost_from
+      ? `${naira(String(d.cost_from))} → ${naira(String(d.cost_to))} each, ${d.quantity} in stock`
+      : `${d.units} in stock set to ${naira(String(d.cost_to))} each`;
+    return `${d.name}: ${what}. Stock value ${Number(d.value_change) >= 0 ? "+" : "−"}${naira(String(Math.abs(Number(d.value_change))))}.${reason}`;
+  }
+  if (e.action === "product.removed") {
+    return `${d.name}: took ${d.quantity_removed} out of stock (${naira(String(d.value_removed))} at cost).${reason}`;
+  }
+  if (e.action === "products.imported") {
+    return `${d.products} products, ${d.items_in_stock} items in stock, ${naira(String(d.stock_value))} at cost${d.file ? ` (${d.file})` : ""}`;
   }
   const changed = Object.entries(d)
     .filter(([, v]) => v && typeof v === "object" && "to" in (v as object))

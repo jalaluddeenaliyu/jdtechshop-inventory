@@ -462,6 +462,8 @@ function ProductTable({
 // ---------------- Add / edit product ----------------
 
 type ProductFormState = {
+  cost_each: string;
+  cost_reason: string;
   opening_quantity: string;
   opening_unit_cost: string;
   name: string;
@@ -481,6 +483,8 @@ type ProductFormState = {
 
 function initialForm(p?: Product): ProductFormState {
   return {
+    cost_each: p?.cost_each != null && Number(p.cost_each) > 0 ? String(Number(p.cost_each)) : "",
+    cost_reason: "",
     opening_quantity: "",
     opening_unit_cost: "",
     name: p?.name ?? "",
@@ -533,6 +537,11 @@ function ProductForm({
     brandChoices.push({ id: product.brand_id, label: `${product.brand_name} (turned off)` });
   }
 
+  // Owners can correct a wrongly entered cost price for the stock on hand.
+  const canFixCost = editing && product.cost_each !== null && (product.tracking_type === "quantity" || product.qty_on_hand > 0);
+  const costChanged = canFixCost && form.cost_each.trim() !== "" &&
+    Number(form.cost_each.replaceAll(",", "").replace("₦", "").trim()) !== Number(product.cost_each ?? 0);
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (busy) return;
@@ -566,9 +575,14 @@ function ProductForm({
       }
     }
     try {
-      const saved = editing
+      let saved = editing
         ? await api.patch<Product>(`/products/${product.id}`, body)
         : await api.post<Product>("/products", body);
+      if (editing && costChanged) {
+        saved = await api.post<Product>(`/products/${product.id}/cost`, {
+          cost_each: form.cost_each.replaceAll(",", "").replace("₦", "").trim(), reason: form.cost_reason,
+        });
+      }
       onDone(saved);
     } catch (err) {
       if (err instanceof ApiError) {
@@ -636,8 +650,31 @@ function ProductForm({
           <TextInput label="Selling price (₦)" inputMode="decimal" value={form.selling_price}
             error={errors.selling_price} onChange={set("selling_price")} placeholder="0.00" />
           <ProfitHint price={form.selling_price}
-            cost={!editing ? form.opening_unit_cost : product?.cost_each ?? ""} />
+            cost={!editing ? form.opening_unit_cost : canFixCost ? form.cost_each : product?.cost_each ?? ""} />
         </div>
+        {canFixCost && (
+          <div className="sm:col-span-2 rounded-md border border-line bg-paper/60 p-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <TextInput label={product.tracking_type === "serialized" ? "Cost price of each one in stock (₦)" : "Cost price, each (₦)"}
+                inputMode="decimal" value={form.cost_each} error={errors.cost_each} onChange={set("cost_each")}
+                hint={product.tracking_type === "serialized"
+                  ? `Sets the same cost on all ${product.qty_on_hand} in stock. To fix one phone, use Inventory → Serial / IMEI units.`
+                  : `Correct it if it was entered wrongly. Applies to the ${product.qty_on_hand} in stock.`} />
+              {costChanged && (
+                <TextInput label="Why the cost changed (optional)" value={form.cost_reason} onChange={set("cost_reason")}
+                  maxLength={200} placeholder="e.g. Typed 5000, it was 500" />
+              )}
+            </div>
+            {costChanged && (
+              <p className="mt-2 text-sm text-muted">
+                Stock value changes from {naira(product.stock_value)} to{" "}
+                <span className="font-medium text-ink">
+                  {naira(product.qty_on_hand * Number(form.cost_each.replaceAll(",", "").replace("₦", "")))}
+                </span>. Sales already made keep the cost they were sold at.
+              </p>
+            )}
+          </div>
+        )}
         {form.tracking_type === "quantity" ? (
           <SelectInput label="Condition" value={form.condition} onChange={set("condition")}>
             <option value="new">New</option>
