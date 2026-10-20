@@ -1,0 +1,36 @@
+# Render Blueprint for JD TechShop.
+# One free web service serves both the interface and the API.
+# The database lives on Neon (free); you paste its connection string when Render asks.
+# Full walkthrough: docs/DEPLOY_RENDER_NEON.md
+
+services:
+  - type: web
+    name: jdtechshop
+    runtime: python
+    plan: free            # change to "starter" ($7/mo) later to stop the app sleeping
+    region: frankfurt     # closest Render region to Nigeria; cannot be changed later
+    branch: main
+    buildCommand: >-
+      cd frontend && npm ci && npm run build &&
+      cd ../backend && pip install -r requirements.txt
+    startCommand: >-
+      cd backend && alembic upgrade head &&
+      uvicorn app.main:app --host 0.0.0.0 --port $PORT
+      --proxy-headers --forwarded-allow-ips="*"
+    healthCheckPath: /api/ping   # does not wake the database
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.1"
+      - key: NODE_VERSION
+        value: "22"
+      - key: ENVIRONMENT
+        value: production
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: BUSINESS_TIMEZONE
+        value: Africa/Lagos
+      - key: SECRET_KEY
+        generateValue: true      # Render creates a long random secret for you
+      - key: DATABASE_URL
+        sync: false              # Render asks you to paste the Neon connection string

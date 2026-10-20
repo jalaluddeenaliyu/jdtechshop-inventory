@@ -2,7 +2,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -29,6 +29,18 @@ class Settings(BaseSettings):
 
     # Optional: path to the built frontend (frontend/dist) so one server can serve everything.
     frontend_dist: Path = BACKEND_DIR.parent / "frontend" / "dist"
+
+    @field_validator("database_url", "test_database_url")
+    @classmethod
+    def _use_psycopg_driver(cls, url: str) -> str:
+        """Hosts like Neon and Render hand out `postgresql://...` (or `postgres://...`).
+        SQLAlchemy would then look for the old psycopg2 driver, which we don't install,
+        so we point it at psycopg 3 automatically."""
+        url = url.strip()
+        for prefix in ("postgres://", "postgresql://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg://" + url[len(prefix):]
+        return url
 
     @model_validator(mode="after")
     def _check_production_safety(self):

@@ -8,6 +8,14 @@ from app.core.deps import DB
 router = APIRouter(tags=["health"])
 
 
+@router.get("/ping")
+def ping() -> dict:
+    """Tiny check that the web server is up. Deliberately does NOT touch the database,
+    so hosting health checks and keep-awake pings don't keep a free Neon database awake
+    (which would use up its monthly compute allowance)."""
+    return {"status": "ok"}
+
+
 @router.get("/health")
 def health(db: DB) -> JSONResponse:
     """Public check that the API and database are reachable. Reveals no business data."""
