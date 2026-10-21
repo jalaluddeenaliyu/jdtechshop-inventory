@@ -1,4 +1,4 @@
-import { CheckCircle2, Minus, Plus, Printer, ScanLine, Search, Trash2, UserPlus, UserRound, X } from "lucide-react";
+import { CalendarDays, CheckCircle2, Minus, Plus, Printer, ScanLine, Search, Trash2, UserPlus, UserRound, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Badge, Button, Dialog, Notice, PageHeader, Panel, Spinner } from "../components/ui";
@@ -19,7 +19,7 @@ import {
   type Unit,
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { naira, phone, todayISO } from "../lib/format";
+import { dateOnly, naira, phone, todayISO } from "../lib/format";
 import { CustomerForm } from "./Customers";
 import { SalesHistory } from "./SalesHistory";
 
@@ -69,6 +69,10 @@ function Till() {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [payments, setPayments] = useState<PayRow[]>([]);
   const [dueDate, setDueDate] = useState("");
+  // Owner only: enter an old sale on the day it happened. Kept between sales so a stack of
+  // old receipts can be typed in one after another; reloading the page goes back to today.
+  const [saleDate, setSaleDate] = useState(todayISO);
+  const backdated = isOwner && saleDate !== "" && saleDate < todayISO();
   const [tendered, setTendered] = useState("");
   const [saleKey, setSaleKey] = useState(newKey); // one per cart: a double click makes one sale
   const [busy, setBusy] = useState(false);
@@ -188,6 +192,7 @@ function Till() {
         payments: payments.filter((p) => money(p.amount) > 0)
           .map((p) => ({ method_id: Number(p.method_id), amount: money(p.amount).toFixed(2) })),
         due_date: totals.owed > 0 && dueDate ? dueDate : null,
+        ...(backdated ? { sale_date: saleDate } : {}),
         idempotency_key: saleKey,
       });
       setDone(sale);
@@ -215,7 +220,8 @@ function Till() {
         <ScanBox inputRef={searchRef} onPick={addResult} />
         {done && (
           <Notice tone="success">
-            <span className="font-medium">Sale {done.receipt_no} completed</span> — {naira(done.total)}
+            <span className="font-medium">Sale {done.receipt_no} completed</span>
+            {done.business_date < todayISO() && <> for {dateOnly(done.business_date)}</>} — {naira(done.total)}
             {Number(done.balance_due) > 0 && <> · {naira(done.balance_due)} owed by {done.customer_name}</>}.{" "}
             <Link to={`/sales/${done.id}?print=1`} className="inline-flex items-center gap-1 font-medium underline">
               <Printer className="size-4" aria-hidden /> Print receipt
@@ -364,11 +370,31 @@ function Till() {
                   )}
                   <label className="mt-2 flex items-center gap-2">
                     Pay by
-                    <input type="date" min={todayISO()} value={dueDate} onChange={(e) => setDueDate(e.target.value)}
+                    <input type="date" min={backdated ? saleDate : todayISO()} value={dueDate} onChange={(e) => setDueDate(e.target.value)}
                       className="h-8 rounded-md border border-line bg-white px-2 focus:outline-none focus:border-board" />
                     <span className="text-muted">(optional)</span>
                   </label>
                 </>
+              )}
+            </div>
+          )}
+
+          {isOwner && (
+            <div className={`mt-4 rounded-md px-3 py-2 text-sm ${backdated ? "border border-pad/60 bg-pad/15" : "bg-paper"}`}>
+              <label className="flex flex-wrap items-center gap-2">
+                <CalendarDays className="size-4 text-muted" aria-hidden />
+                <span className="font-medium">Sale date</span>
+                <input type="date" max={todayISO()} value={saleDate} required
+                  onChange={(e) => { setSaleDate(e.target.value || todayISO()); setDueDate(""); }}
+                  className="h-8 rounded-md border border-line bg-white px-2 focus:outline-none focus:border-board" />
+                {backdated && (
+                  <button type="button" onClick={() => setSaleDate(todayISO())} className="font-medium text-board underline">Back to today</button>
+                )}
+              </label>
+              {backdated ? (
+                <p className="mt-1">Old sale: it will be recorded on <span className="font-medium">{dateOnly(saleDate)}</span> and counted in that day's figures.</p>
+              ) : (
+                <p className="mt-1 text-muted">Change this only when typing in a sale from an earlier day.</p>
               )}
             </div>
           )}

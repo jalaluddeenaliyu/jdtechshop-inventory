@@ -13,7 +13,8 @@ are saved together or not at all. Rules enforced here (and backed by the databas
   registered customers (never walk-ins), and for staff only when Settings allow it.
 - One idempotency key per cart: submitting the same cart twice records one sale.
 """
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import HTTPException, Request, status
@@ -22,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core import audit
+from app.config import get_settings
 from app.core.clock import business_today
 from app.models import (
     BusinessSettings,
@@ -76,16 +78,41 @@ def _unit_label(u: ProductUnit) -> str:
     return f"IMEI {u.imei1}" if u.imei1 else f"serial {u.serial_number}"
 
 
-def next_receipt_no(db: Session) -> tuple[str, date]:
+def next_receipt_no(db: Session, day: date | None = None) -> tuple[str, date]:
     """JDT-YYMMDD-NNNN, numbered per shop day. The counter row is locked until commit, and a
-    failed sale rolls its number back, so receipts have no gaps and no duplicates."""
-    today = business_today()
+    failed sale rolls its number back, so receipts have no gaps and no duplicates.
+    A sale entered for an earlier day gets the next number of that day."""
+    today = day or business_today()
     n = db.scalar(text(
         "INSERT INTO receipt_counters (day, last_number) VALUES (:d, 1) "
         "ON CONFLICT (day) DO UPDATE SET last_number = receipt_counters.last_number + 1 "
         "RETURNING last_number"
     ), {"d": today})
     return f"JDT-{today:%y%m%d}-{n:04d}", today
+
+
+EARLIEST_SALE_DATE = date(2000, 1, 1)
+
+
+def _check_sale_date(sale_date: date | None, actor: User) -> date:
+    """The shop day the sale belongs to. Only the owner may enter a sale for an earlier day."""
+    today = business_today()
+    if sale_date is None or sale_date == today:
+        return today
+    if sale_date > today:
+        raise HTTPException(422, "The sale date cannot be in the future.")
+    if sale_date < EARLIEST_SALE_DATE:
+        raise HTTPException(422, "That sale date is too far in the past.")
+    if not actor.is_owner:
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "Only the owner can record a sale for an earlier date.")
+    return sale_date
+
+
+def _on_day(day: date) -> datetime:
+    """The same clock time as now, on an earlier shop day (Africa/Lagos)."""
+    tz = ZoneInfo(get_settings().business_timezone)
+    return datetime.combine(day, datetime.now(tz).time().replace(microsecond=0), tzinfo=tz)
 
 
 def _replay(db: Session, key: str) -> Sale | None:
@@ -204,8 +231,10 @@ def create_sale(db: Session, data: SaleIn, actor: User,
             f"Payments add up to {_naira(paid)}, more than the total of {_naira(total)}. Enter only "
             "what goes towards this sale (give change from the cash).",
         )
-    if data.due_date is not None and data.due_date < business_today():
-        raise HTTPException(422, "The due date cannot be in the past.")
+    sale_day = _check_sale_date(data.sale_date, actor)
+    if data.due_date is not None and data.due_date < sale_day:
+        raise HTTPException(422, "The due date cannot be before the sale date."
+                            if sale_day < business_today() else "The due date cannot be in the past.")
     if paid < total:
         if customer.is_walk_in:
             raise HTTPException(
@@ -217,9 +246,11 @@ def create_sale(db: Session, data: SaleIn, actor: User,
             raise HTTPException(status.HTTP_403_FORBIDDEN,
                                 "Sales staff cannot sell on credit (Settings). Ask the owner.")
 
-    receipt_no, today = next_receipt_no(db)
+    backdated = sale_day < business_today()
+    receipt_no, today = next_receipt_no(db, sale_day)
     sale = Sale(
         receipt_no=receipt_no, customer_id=customer.id, sold_by_id=actor.id, business_date=today,
+        **({"sold_at": _on_day(sale_day)} if backdated else {}),
         status=SaleStatus.COMPLETED, subtotal=subtotal, discount_total=discount_total,
         total=total, amount_paid_at_sale=paid, due_date=data.due_date if paid < total else None,
         notes=data.notes, idempotency_key=data.idempotency_key,
@@ -257,7 +288,9 @@ def create_sale(db: Session, data: SaleIn, actor: User,
                      details={"receipt_no": receipt_no, "total": str(total), "paid": str(paid),
                               "customer": customer.name,
                               "items": sum(line.quantity for line, *_ in priced),
-                              "discount": str(discount_total)},
+                              "discount": str(discount_total),
+                              **({"sale_date": sale_day.isoformat(),
+                                  "entered_late": True} if backdated else {})},
                      request=request)
         db.commit()
     except IntegrityError:

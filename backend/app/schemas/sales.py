@@ -40,6 +40,9 @@ class SaleIn(BaseModel):
     # What the customer pays now. Less than the total = the rest is owed (credit sale).
     payments: list[SalePaymentIn] = Field(default_factory=list, max_length=5)
     due_date: date | None = None
+    # Owner only: record a sale that happened on an earlier day (entering old records).
+    # Empty = today.
+    sale_date: date | None = None
     notes: str | None = Field(default=None, max_length=500)
     idempotency_key: str = Field(min_length=8, max_length=64)
 
