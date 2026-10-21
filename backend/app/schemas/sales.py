@@ -13,8 +13,10 @@ class SaleLineIn(BaseModel):
     product_id: int
     unit_id: int | None = None  # required for serial/IMEI products: which phone/laptop
     quantity: int = Field(default=1, ge=1, le=10_000)
-    # Discount for the whole line, in naira. The price itself always comes from the product.
+    # Discount for the whole line, in naira. The price itself always comes from the product,
+    # except for a service whose price is ₦0 ("price set at the till"): then it is typed here.
     discount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=12, decimal_places=2)
+    unit_price: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
 
     _k = field_validator("discount")(to_kobo)
 

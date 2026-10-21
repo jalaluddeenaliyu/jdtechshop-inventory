@@ -21,6 +21,7 @@ from app.models.base import Base, TimestampMixin
 class TrackingType(StrEnum):
     SERIALIZED = "serialized"  # phones, laptops: every unit has its own serial / IMEI
     QUANTITY = "quantity"      # accessories: counted, not individually identified
+    SERVICE = "service"        # sticker cutting, printing, repairs: sold, but no stock
 
 
 class Condition(StrEnum):
@@ -69,7 +70,10 @@ class Product(TimestampMixin, Base):
 
     __tablename__ = "products"
     __table_args__ = (
-        CheckConstraint("tracking_type IN ('serialized', 'quantity')", name="tracking_type_valid"),
+        CheckConstraint("tracking_type IN ('serialized', 'quantity', 'service')",
+                        name="tracking_type_valid"),
+        CheckConstraint("tracking_type <> 'service' OR qty_on_hand = 0",
+                        name="service_has_no_stock"),
         CheckConstraint(
             "condition IS NULL OR condition IN ('new', 'used', 'refurbished')",
             name="condition_valid",

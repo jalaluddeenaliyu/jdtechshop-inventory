@@ -27,7 +27,7 @@ def list_products(
     q: str | None = Query(None, max_length=100, description="Name, SKU, barcode or model"),
     category_id: int | None = None,
     brand_id: int | None = None,
-    tracking_type: Literal["serialized", "quantity"] | None = None,
+    tracking_type: Literal["serialized", "quantity", "service"] | None = None,
     stock: StockFilter | None = None,
     include_inactive: bool = False,
     sort: ProductSort = "name",

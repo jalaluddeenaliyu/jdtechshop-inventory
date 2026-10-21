@@ -7,7 +7,7 @@ import { naira } from "../lib/format";
 interface ImportedProduct {
   rows: number[];
   name: string;
-  tracking_type: "quantity" | "serialized" | null;
+  tracking_type: "quantity" | "serialized" | "service" | null;
   quantity: number;
   cost_each: string | null;
   selling_price: string | null;
@@ -94,7 +94,7 @@ export function ImportProducts({ onDone }: { onDone: (message: string) => void }
         <li className="rounded-md border border-line p-3">
           <p className="font-medium">2. Fill it in</p>
           <p className="mt-0.5 text-muted">
-            Accessories: one row each, with quantity and cost. Phones and laptops: one row <em>per phone</em>, with its IMEI or serial and cost.
+            Accessories: one row each, with quantity and cost. Phones and laptops: one row <em>per phone</em>, with its IMEI or serial and cost. Services: “Service”, no quantity.
           </p>
         </li>
         <li className="rounded-md border border-line p-3">
@@ -169,7 +169,8 @@ export function ImportProducts({ onDone }: { onDone: (message: string) => void }
                     <td className="px-3 py-2">
                       <div className="font-medium">{p.name}</div>
                       <div className="text-muted">
-                        {p.tracking_type === "serialized" && <Badge tone="pad">Serial/IMEI</Badge>}{" "}
+                        {p.tracking_type === "serialized" && <Badge tone="pad">Serial/IMEI</Badge>}
+                        {p.tracking_type === "service" && <Badge tone="neutral">Service</Badge>}{" "}
                         {[p.category, p.brand].filter(Boolean).join(" · ")}
                       </div>
                       {p.error && <div className="text-alert">{p.error}</div>}

@@ -41,7 +41,7 @@ export function roleLabel(role: string): string {
 }
 
 export function trackingLabel(t: string): string {
-  return t === "serialized" ? "Serial / IMEI" : "Quantity";
+  return t === "serialized" ? "Serial / IMEI" : t === "service" ? "Service" : "Quantity";
 }
 
 export const MOVEMENT_LABELS: Record<string, string> = {

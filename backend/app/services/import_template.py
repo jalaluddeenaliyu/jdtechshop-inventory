@@ -23,6 +23,10 @@ EXAMPLES = [
     {"name": "HP EliteBook 840 G5", "tracking": "Serial/IMEI", "selling_price": 420000,
      "cost": 350000, "category": "Laptops", "brand": "HP", "condition": "Refurbished",
      "serial": "5CG8251XYZ"},
+    {"name": "Phone sticker – full body", "tracking": "Service", "selling_price": 3000,
+     "cost": 800, "category": "Services"},
+    {"name": "Custom sticker printing", "tracking": "Service", "selling_price": 0,
+     "category": "Services"},
 ]
 
 
@@ -59,7 +63,7 @@ def build_template() -> bytes:
     def col(key: str) -> str:
         return products.cell(row=1, column=keys.index(key) + 1).column_letter
 
-    for key, choices in (("tracking", '"Quantity,Serial/IMEI"'),
+    for key, choices in (("tracking", '"Quantity,Serial/IMEI,Service"'),
                          ("condition", '"New,Used,Refurbished"')):
         dv = DataValidation(type="list", formula1=choices, allow_blank=True)
         dv.add(f"{col(key)}2:{col(key)}1001")
@@ -80,6 +84,9 @@ def build_template() -> bytes:
                              "phone's IMEI (or serial number for laptops) and what it cost. "
                              "Leave Quantity blank."),
         ("Nothing in stock?", "Leave Quantity and Cost blank. The product is still created."),
+        ("Services", "Sticker cutting, printing, repairs: Counted by = Service, no Quantity. "
+                     "Cost price each = materials per job (optional). Selling price 0 = the "
+                     "price is typed at the till for each job."),
         ("Money", "Plain numbers are best (8500). ₦8,500 also works."),
         ("Checking", "When you upload, the app shows a preview and lists any problems by row "
                      "number. Nothing is saved until every row is right."),

@@ -198,8 +198,9 @@ def opening_stock_open(db: Session, products: list[Product]) -> dict[int, bool]:
         StockMovement.product_id.in_(ids),
         StockMovement.movement_type != MovementType.OPENING).distinct()))
     return {
-        p.id: p.is_active and (p.id not in beyond_opening
-                               if p.tracking_type == TrackingType.SERIALIZED else p.id not in moved)
+        p.id: p.is_active and p.tracking_type != TrackingType.SERVICE
+        and (p.id not in beyond_opening
+             if p.tracking_type == TrackingType.SERIALIZED else p.id not in moved)
         for p in products
     }
 
@@ -216,6 +217,9 @@ def unit_stock_values(db: Session, products: list[Product]) -> dict[int, Decimal
 
 
 def _valuation(p: Product, unit_values: dict[int, Decimal]) -> tuple[Decimal, Decimal | None]:
+    if p.tracking_type == TrackingType.SERVICE:
+        # No stock. "Cost each" is the cost of one job, if the owner set one.
+        return Decimal("0.00"), (p.avg_cost if p.avg_cost and p.avg_cost > 0 else None)
     if p.tracking_type == TrackingType.SERIALIZED:
         value = Decimal(unit_values.get(p.id) or 0)
     else:
@@ -249,7 +253,8 @@ def product_out(p: Product, default_reorder: int, show_cost: bool,
         stock_value=value, cost_each=each,
         qty_on_hand=p.qty_on_hand, reorder_level=p.reorder_level,
         effective_reorder_level=level,
-        is_low_stock=p.is_active and p.qty_on_hand <= level,
+        is_low_stock=(p.is_active and p.tracking_type != TrackingType.SERVICE
+                      and p.qty_on_hand <= level),
         is_active=p.is_active, opening_stock_open=opening_open,
         created_at=p.created_at, updated_at=p.updated_at,
     )
@@ -314,6 +319,8 @@ def _check_codes_free(db: Session, sku: str | None, barcode: str | None,
 
 
 def _condition_for(tracking_type: str, condition: str | None) -> str | None:
+    if tracking_type == TrackingType.SERVICE:
+        return None  # a service has no physical condition
     if tracking_type == TrackingType.SERIALIZED:
         if condition is not None:
             raise HTTPException(
@@ -338,7 +345,9 @@ def create_product(db: Session, data: ProductCreate, actor: User,
     _check_name_free(db, data.name)
     _check_codes_free(db, data.sku, data.barcode)
     product = Product(
-        **data.model_dump(exclude={"sku", "condition", "opening_quantity", "opening_unit_cost"}),
+        **data.model_dump(exclude={"sku", "condition", "opening_quantity", "opening_unit_cost",
+                                   "service_cost"}),
+        avg_cost=data.service_cost or Decimal("0"),
         sku=data.sku or _next_sku(db),
         condition=_condition_for(data.tracking_type, data.condition),
         qty_on_hand=0,
@@ -390,6 +399,14 @@ def update_product(db: Session, product_id: int, data: ProductUpdate, actor: Use
             "This product already has stock history, so it cannot switch between "
             "serial/IMEI tracking and quantity tracking. Create a new product instead.",
         )
+    if tracking != product.tracking_type and TrackingType.SERVICE in (tracking,
+                                                                       product.tracking_type):
+        from app.models import SaleLine  # local: keeps this module's imports small
+        if db.scalar(select(SaleLine.id).where(SaleLine.product_id == product.id).limit(1)):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "This has already been sold, so it can't switch between a service and a "
+                "product with stock. Create a new one instead.")
     if "condition" in fields or tracking != product.tracking_type:
         condition = fields.get("condition", product.condition)
         if tracking == TrackingType.SERIALIZED and "condition" not in fields:
@@ -463,6 +480,8 @@ def list_products(
         conditions.append(Product.brand_id == brand_id)
     if tracking_type is not None:
         conditions.append(Product.tracking_type == tracking_type)
+    if stock is not None:
+        conditions.append(Product.tracking_type != TrackingType.SERVICE)
     if stock == "out":
         conditions.append(Product.qty_on_hand == 0)
     elif stock == "in":

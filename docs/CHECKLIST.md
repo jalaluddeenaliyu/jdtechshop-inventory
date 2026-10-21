@@ -151,6 +151,13 @@ _Last updated: 15 October 2026 — Phase 5 complete (installing on the shop Mac 
   - ✅ Changes the cost of stock on hand (stock value and future profit); sales already made keep their frozen cost; sold phones can't be changed
   - ✅ Shows the stock value before/after while editing; every correction in the Activity log with old/new cost, quantity, value change and reason
   - ✅ 5 new automated tests (315 total)
+- ✅ Services (sticker cutting, printing, repairs): third product type, "Service"
+  - ✅ Sold at the till like products (same receipt, payments, credit, returns); no stock, never "out of stock"
+  - ✅ Fixed price, or price 0 = typed at the till for each job; fixed prices can't be overridden (discount instead)
+  - ✅ Optional cost per job (materials) for honest profit; correctable later
+  - ✅ Kept out of stock levels, valuation, low-stock alerts, purchases and adjustments; returns refund money only
+  - ✅ Import from Excel accepts "Service"; migration 0010 (database refuses stock on a service)
+  - ✅ 8 new automated tests (323 total)
 
 ## Acceptance tests
 | # | Test | Status |

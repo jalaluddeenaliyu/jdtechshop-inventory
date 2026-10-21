@@ -32,6 +32,7 @@ from app.models import (
     SaleReturn,
     SaleReturnLine,
     SaleStatus,
+    TrackingType,
     UnitStatus,
     User,
 )
@@ -90,6 +91,8 @@ def _bring_back(db: Session, line: SaleLine, quantity: int, restock: bool, actor
                 reason: str) -> None:
     """Put sold items back into stock (and, if damaged, straight out again as damaged)."""
     product = db.get(Product, line.product_id)  # already locked by the caller
+    if product.tracking_type == TrackingType.SERVICE:
+        return  # a service has no stock to bring back; only the money is undone
     unit = db.get(ProductUnit, line.unit_id, with_for_update=True) if line.unit_id else None
     common = {"user": actor, "unit_id": unit.id if unit else None, "reference_type": reference_type,
               "reference_id": reference_id, "reason": reason}

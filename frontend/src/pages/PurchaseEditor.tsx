@@ -140,7 +140,8 @@ function DraftEditor({ purchase, onPosted }: { purchase: Purchase | null; onPost
   useEffect(() => {
     if (!restockId || !/^\d+$/.test(restockId) || restockDone.current) return;
     restockDone.current = true; // add it once, even if this effect runs twice
-    api.get<Product>(`/products/${restockId}`).then(addProduct).catch(() => {});
+    api.get<Product>(`/products/${restockId}`)
+      .then((p) => { if (p.tracking_type !== "service") addProduct(p); }).catch(() => {});
   }, [restockId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const additional = money(header.additional_costs) || 0;
@@ -488,7 +489,8 @@ function ProductPicker({ onPick }: { onPick: (p: Product) => void }) {
     }
     const t = setTimeout(() => {
       api.get<Page<Product>>(`/products${qs({ q: q.trim(), page_size: 8 })}`)
-        .then((r) => { setResults(r.items); setActive(0); setOpen(true); }).catch(() => {});
+        // Services aren't bought from suppliers, so they aren't offered here.
+        .then((r) => { setResults(r.items.filter((p) => p.tracking_type !== "service")); setActive(0); setOpen(true); }).catch(() => {});
     }, 200);
     return () => clearTimeout(t);
   }, [q]);

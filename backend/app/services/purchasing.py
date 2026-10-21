@@ -310,6 +310,10 @@ def _build_lines(db: Session, data: PurchaseIn) -> list[PurchaseLine]:
         if not product.is_active:
             raise HTTPException(422, f"Line {n}: “{product.name}” is turned off.")
         products[product.id] = product
+        if product.tracking_type == TrackingType.SERVICE:
+            raise HTTPException(422, f"Line {n}: {product.name} is a service, so it isn't bought "
+                                     "from suppliers. Record materials as their own products, "
+                                     "or as an expense.")
         if product.tracking_type == TrackingType.SERIALIZED:
             if len(line.units) != line.quantity:
                 raise HTTPException(

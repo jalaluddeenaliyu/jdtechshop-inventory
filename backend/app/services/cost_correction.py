@@ -32,7 +32,17 @@ def correct_cost(db: Session, product_id: int, new_cost: Decimal, reason: str | 
     new_cost = new_cost.quantize(FOUR)
     reason = " ".join((reason or "").split())[:200] or None
 
-    if product.tracking_type == TrackingType.QUANTITY:
+    if product.tracking_type == TrackingType.SERVICE:
+        # A service has no stock: this is simply the cost of one job from now on.
+        old = product.avg_cost or Decimal("0")
+        if old.quantize(FOUR) == new_cost:
+            return {"changed": 0, "value_change": "0.00"}
+        product.avg_cost = new_cost
+        value_change = Decimal("0")
+        details = {"name": product.name, "cost_from": _money(old), "cost_to": _money(new_cost),
+                   "quantity": 0, "value_change": "0.00", "reason": reason, "service": True}
+        changed = 0
+    elif product.tracking_type == TrackingType.QUANTITY:
         if unit_id is not None:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
                                 "This product is counted by quantity; it has no separate units.")

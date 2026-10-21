@@ -128,7 +128,7 @@ export interface AuditEntry {
   created_at: string;
 }
 
-export type TrackingType = "serialized" | "quantity";
+export type TrackingType = "serialized" | "quantity" | "service";
 export type Condition = "new" | "used" | "refurbished";
 
 export interface Category {

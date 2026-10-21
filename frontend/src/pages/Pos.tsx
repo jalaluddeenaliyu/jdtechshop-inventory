@@ -45,7 +45,12 @@ export function PosPage() {
 
 // ---------------- The till ----------------
 
-type CartLine = { key: number; product: PosProduct; unit: PosUnit | null; quantity: number; discount: string };
+type CartLine = { key: number; product: PosProduct; unit: PosUnit | null; quantity: number; discount: string; price: string };
+
+const isService = (p: Pick<PosProduct, "tracking_type">) => p.tracking_type === "service";
+/** A service priced at ₦0 means "type the price at the till" (e.g. custom printing jobs). */
+const isOpenPrice = (p: Pick<PosProduct, "tracking_type" | "selling_price">) =>
+  isService(p) && Number(p.selling_price) === 0;
 type PayRow = { key: number; method_id: string; amount: string };
 
 let nextKey = 1;
@@ -82,7 +87,7 @@ function Till() {
   }, []);
 
   const totals = useMemo(() => {
-    const subtotal = cart.reduce((s, l) => s + kobo(l.quantity * money(l.product.selling_price)), 0);
+    const subtotal = cart.reduce((s, l) => s + kobo(l.quantity * linePrice(l)), 0);
     const discount = cart.reduce((s, l) => s + kobo(money(l.discount)), 0);
     const paid = payments.reduce((s, p) => s + kobo(money(p.amount)), 0);
     return { subtotal: subtotal / 100, discount: discount / 100, total: (subtotal - discount) / 100, paid: paid / 100,
@@ -94,6 +99,10 @@ function Till() {
   const cashMethodIds = methods.filter((m) => m.name.toLowerCase().includes("cash")).map((m) => String(m.id));
   const cashPaid = payments.filter((p) => cashMethodIds.includes(p.method_id)).reduce((s, p) => s + money(p.amount), 0);
 
+  function linePrice(l: CartLine): number {
+    return isOpenPrice(l.product) ? money(l.price) : money(l.product.selling_price);
+  }
+
   function flashError(message: string) {
     setError(message);
     setDone(null);
@@ -104,27 +113,33 @@ function Till() {
     setDone(null);
     if (r.kind === "unit" && r.unit) {
       if (cart.some((l) => l.unit?.id === r.unit!.id)) return flashError("That phone is already in the cart.");
-      setCart((c) => [...c, { key: nextKey++, product: r.product, unit: r.unit, quantity: 1, discount: "" }]);
+      setCart((c) => [...c, { key: nextKey++, product: r.product, unit: r.unit, quantity: 1, discount: "", price: "" }]);
     } else if (r.product.tracking_type === "serialized") {
       setPicking(r.product);
+      return;
+    } else if (isOpenPrice(r.product)) {
+      // Each job has its own price, so each goes on its own line; the price box gets the cursor.
+      const key = nextKey++;
+      setCart((c) => [...c, { key, product: r.product, unit: null, quantity: 1, discount: "", price: "" }]);
+      setTimeout(() => document.getElementById(`price-${key}`)?.focus(), 0);
       return;
     } else {
       const existing = cart.find((l) => l.product.id === r.product.id && !l.unit);
       const wanted = (existing?.quantity ?? 0) + 1;
-      if (wanted > r.product.qty_on_hand) {
+      if (!isService(r.product) && wanted > r.product.qty_on_hand) {
         return flashError(r.product.qty_on_hand
           ? `Only ${r.product.qty_on_hand} ${r.product.name} in stock.`
           : `${r.product.name} is out of stock.`);
       }
       if (existing) setCart((c) => c.map((l) => (l.key === existing.key ? { ...l, quantity: wanted } : l)));
-      else setCart((c) => [...c, { key: nextKey++, product: r.product, unit: null, quantity: 1, discount: "" }]);
+      else setCart((c) => [...c, { key: nextKey++, product: r.product, unit: null, quantity: 1, discount: "", price: "" }]);
     }
     searchRef.current?.focus();
   }
 
   function setQty(line: CartLine, quantity: number) {
     if (quantity < 1) return;
-    if (quantity > line.product.qty_on_hand) return flashError(`Only ${line.product.qty_on_hand} ${line.product.name} in stock.`);
+    if (!isService(line.product) && quantity > line.product.qty_on_hand) return flashError(`Only ${line.product.qty_on_hand} ${line.product.name} in stock.`);
     setCart((c) => c.map((l) => (l.key === line.key ? { ...l, quantity } : l)));
   }
 
@@ -154,6 +169,12 @@ function Till() {
       return setError(`${naira(totals.owed)} is unpaid. Walk-in customers must pay in full — choose or add the customer to sell on credit.`);
     }
     if (totals.owed < 0) return setError("Payments are more than the total. Enter only what goes towards this sale.");
+    const unpriced = cart.find((l) => isOpenPrice(l.product) && !(money(l.price) > 0));
+    if (unpriced) {
+      setLineErrors({ [unpriced.key]: `Enter the price for ${unpriced.product.name}.` });
+      document.getElementById(`price-${unpriced.key}`)?.focus();
+      return setError("Please fix the highlighted item.");
+    }
     setBusy(true);
     try {
       const sale = await api.post<Sale>("/sales", {
@@ -161,6 +182,7 @@ function Till() {
         lines: cart.map((l) => ({
           product_id: l.product.id, unit_id: l.unit?.id ?? null, quantity: l.quantity,
           discount: money(l.discount).toFixed(2),
+          ...(isOpenPrice(l.product) ? { unit_price: money(l.price).toFixed(2) } : {}),
         })),
         payments: payments.filter((p) => money(p.amount) > 0)
           .map((p) => ({ method_id: Number(p.method_id), amount: money(p.amount).toFixed(2) })),
@@ -210,7 +232,7 @@ function Till() {
           ) : (
             <ul className="divide-y divide-line -my-2">
               {cart.map((l, i) => {
-                const gross = l.quantity * money(l.product.selling_price);
+                const gross = l.quantity * linePrice(l);
                 const allowed = Math.round(gross * limitPct) / 100;
                 const overLimit = !isOwner && money(l.discount) > allowed;
                 return (
@@ -219,7 +241,7 @@ function Till() {
                       <div className="flex-1 min-w-48">
                         <p className="font-medium"><span className="text-muted num">{i + 1}.</span> {l.product.name}</p>
                         <p className="text-sm text-muted num">
-                          {l.unit ? unitLabel(l.unit) : l.product.sku}
+                          {l.unit ? unitLabel(l.unit) : isService(l.product) ? "Service" : l.product.sku}
                           {(l.unit?.condition ?? l.product.condition) && (l.unit?.condition ?? l.product.condition) !== "new" &&
                             ` · ${l.unit?.condition ?? l.product.condition}`}
                         </p>
@@ -241,6 +263,14 @@ function Till() {
                           </>
                         )}
                       </div>
+                      {isOpenPrice(l.product) && (
+                        <label className="w-28">
+                          <span className="sr-only">Price of {l.product.name}</span>
+                          <input id={`price-${l.key}`} inputMode="decimal" placeholder="Price ₦" value={l.price}
+                            onChange={(e) => setCart((c) => c.map((x) => (x.key === l.key ? { ...x, price: e.target.value } : x)))}
+                            className={`w-full h-9 rounded-md border px-2.5 text-right num focus:outline-none focus:border-board focus:ring-2 focus:ring-pad/40 ${lineErrors[l.key] && !money(l.price) ? "border-alert" : "border-pad"}`} />
+                        </label>
+                      )}
                       <label className="w-28">
                         <span className="sr-only">Discount on {l.product.name}</span>
                         <input inputMode="decimal" placeholder="Discount" value={l.discount}
@@ -249,7 +279,7 @@ function Till() {
                       </label>
                       <div className="w-32 text-right">
                         <p className="num font-medium">{naira(gross - money(l.discount))}</p>
-                        <p className="text-sm text-muted num">{l.quantity} × {naira(l.product.selling_price)}</p>
+                        <p className="text-sm text-muted num">{l.quantity} × {isOpenPrice(l.product) && !money(l.price) ? "price?" : naira(linePrice(l))}</p>
                       </div>
                       <button type="button" aria-label={`Remove ${l.product.name}`} onClick={() => setCart((c) => c.filter((x) => x.key !== l.key))}
                         className="rounded p-1.5 text-muted hover:text-alert">
@@ -354,7 +384,7 @@ function Till() {
         {picking && (
           <UnitPicker product={picking} exclude={cart.filter((l) => l.unit).map((l) => l.unit!.id)}
             onPick={(u) => {
-              setCart((c) => [...c, { key: nextKey++, product: picking, unit: u, quantity: 1, discount: "" }]);
+              setCart((c) => [...c, { key: nextKey++, product: picking, unit: u, quantity: 1, discount: "", price: "" }]);
               setPicking(null);
               setTimeout(() => searchRef.current?.focus(), 0);
             }} />
@@ -436,9 +466,9 @@ function ScanBox({ inputRef, onPick }: { inputRef: React.RefObject<HTMLInputElem
                 </span>
               </span>
               <span className="shrink-0 text-right">
-                <span className="block num">{naira(r.product.selling_price)}</span>
-                <span className={`block text-sm num ${r.product.qty_on_hand ? "text-muted" : "text-alert"}`}>
-                  {r.unit ? <Badge tone="ok">This unit</Badge> : `${r.product.qty_on_hand} in stock`}
+                <span className="block num">{isOpenPrice(r.product) ? "Price at till" : naira(r.product.selling_price)}</span>
+                <span className={`block text-sm num ${r.product.qty_on_hand || isService(r.product) ? "text-muted" : "text-alert"}`}>
+                  {r.unit ? <Badge tone="ok">This unit</Badge> : isService(r.product) ? "Service" : `${r.product.qty_on_hand} in stock`}
                 </span>
               </span>
             </li>

@@ -151,7 +151,7 @@ def test_template_downloads_and_round_trips(owner_client):
     buf = io.BytesIO()
     out.save(buf)
     body = upload(owner_client, buf.getvalue()).json()
-    assert body["problems"] == [] and body["summary"]["products"] == 4
+    assert body["problems"] == [] and body["summary"]["products"] == 6
 
 
 def test_file_level_problems(owner_client):

@@ -67,6 +67,9 @@ def _plan(db: Session, data: AdjustmentIn) -> list[StockAdjustmentLine]:
         product = db.get(Product, item.product_id)
         if product is None:
             raise HTTPException(422, f"Line {n}: that product does not exist.")
+        if product.tracking_type == TrackingType.SERVICE:
+            raise HTTPException(422, f"Line {n}: {product.name} is a service, so it has no "
+                                     "stock to adjust.")
         if product.tracking_type == TrackingType.SERIALIZED:
             if item.unit_id is None:
                 raise HTTPException(422, f"Line {n}: {product.name} is tracked by serial/IMEI — pick "

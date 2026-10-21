@@ -94,7 +94,8 @@ export function ReturnItemsForm({ sale, onDone }: { sale: Sale; onDone: (s: Sale
                 <span>
                   <span className="font-medium">{l.product_name}</span>
                   <span className="block text-sm text-muted num">
-                    {l.imei1 ? `IMEI ${l.imei1}` : l.serial_number ? `S/N ${l.serial_number}` : `${left} of ${l.quantity} can come back`}
+                    {l.imei1 ? `IMEI ${l.imei1}` : l.serial_number ? `S/N ${l.serial_number}`
+                      : l.tracking_type === "service" ? `Service · ${left} of ${l.quantity} can be refunded` : `${left} of ${l.quantity} can come back`}
                   </span>
                 </span>
               </label>
@@ -106,7 +107,7 @@ export function ReturnItemsForm({ sale, onDone }: { sale: Sale; onDone: (s: Sale
                     className="w-16 h-8 rounded-md border border-line text-center num" />
                 </label>
               )}
-              {p && (
+              {p && l.tracking_type !== "service" && (
                 <Checkbox label="Came back damaged" checked={p.damaged}
                   onChange={(e) => setPicked((x) => ({ ...x, [l.id]: { ...p, damaged: e.target.checked } }))} />
               )}
@@ -513,7 +514,8 @@ function ProductFinder({ onPick }: { onPick: (p: Product) => void }) {
   useEffect(() => {
     if (!q.trim()) { setResults([]); return; }
     const t = setTimeout(() => {
-      api.get<Page<Product>>(`/products${qs({ q: q.trim(), page_size: 6 })}`).then((r) => setResults(r.items)).catch(() => {});
+      api.get<Page<Product>>(`/products${qs({ q: q.trim(), page_size: 8 })}`)
+        .then((r) => setResults(r.items.filter((p) => p.tracking_type !== "service").slice(0, 6))).catch(() => {});
     }, 200);
     return () => clearTimeout(t);
   }, [q]);

@@ -152,6 +152,14 @@ def create_sale(db: Session, data: SaleIn, actor: User,
                                      "so no unit is picked.")
 
         price = product.selling_price
+        if product.tracking_type == TrackingType.SERVICE and price == 0:
+            # "Price set at the till": the cashier types what this job costs.
+            if line.unit_price is None:
+                raise HTTPException(422, f"Line {n}: enter the price for {product.name}.")
+            price = line.unit_price
+        elif line.unit_price is not None and line.unit_price != price:
+            raise HTTPException(422, f"Line {n}: the price of {product.name} is fixed at "
+                                     f"{_naira(price)}. Use a discount to reduce it.")
         gross = (Decimal(line.quantity) * price).quantize(KOBO)
         if line.discount > gross:
             raise HTTPException(422, f"Line {n}: the discount is more than the price "
@@ -170,7 +178,7 @@ def create_sale(db: Session, data: SaleIn, actor: User,
     # Enough stock of each quantity item (the ledger checks again when it moves the stock).
     wanted: dict[int, int] = {}
     for line, product, unit, *_ in priced:
-        if unit is None:
+        if unit is None and product.tracking_type != TrackingType.SERVICE:
             wanted[product.id] = wanted.get(product.id, 0) + line.quantity
     for pid, n in wanted.items():
         product = products[pid]
@@ -229,11 +237,12 @@ def create_sale(db: Session, data: SaleIn, actor: User,
             )
             db.add(sale_line)
             db.flush()
-            stock_service.record_movement(
-                db, product, quantity_change=-line.quantity, movement_type=MovementType.SALE,
-                user=actor, unit_cost=unit_cost, unit_id=unit.id if unit else None,
-                reference_type="sale", reference_id=sale.id,
-            )
+            if product.tracking_type != TrackingType.SERVICE:  # services have no stock
+                stock_service.record_movement(
+                    db, product, quantity_change=-line.quantity, movement_type=MovementType.SALE,
+                    user=actor, unit_cost=unit_cost, unit_id=unit.id if unit else None,
+                    reference_type="sale", reference_id=sale.id,
+                )
             if unit:
                 unit.status = UnitStatus.SOLD
                 unit.sale_line_id = sale_line.id

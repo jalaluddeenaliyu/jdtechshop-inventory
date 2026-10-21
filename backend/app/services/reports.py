@@ -213,7 +213,8 @@ def _stock_rows(db: Session) -> list[dict]:
         .where(ProductUnit.status.in_(ON_HAND_STATUSES)).group_by(ProductUnit.product_id)).all())
     cats = dict(db.execute(select(Category.id, Category.name)).all())
     rows = []
-    for p in db.scalars(select(Product).where(Product.is_active.is_(True))
+    for p in db.scalars(select(Product).where(Product.is_active.is_(True),
+                                              Product.tracking_type != TrackingType.SERVICE)
                         .order_by(func.lower(Product.name))):
         level = p.reorder_level if p.reorder_level is not None else default_reorder
         if p.tracking_type == TrackingType.SERIALIZED:

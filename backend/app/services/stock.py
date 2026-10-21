@@ -122,6 +122,9 @@ def record_opening_stock(db: Session, product_id: int, data: OpeningStockIn, act
                          request: Request | None) -> Product:
     """The stock a product already had when the shop started using the system. Once only."""
     product = lock_product(db, product_id)
+    if product.tracking_type == TrackingType.SERVICE:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"{product.name} is a service, so it has no stock to enter.")
     if product.tracking_type == TrackingType.SERIALIZED:
         raise HTTPException(
             status.HTTP_409_CONFLICT,

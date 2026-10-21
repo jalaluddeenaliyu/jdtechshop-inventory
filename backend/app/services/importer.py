@@ -43,8 +43,9 @@ COLUMNS: list[tuple[str, str, tuple[str, ...], str]] = [
     ("name", "Product name", ("name", "product", "item", "item name", "product name"),
      "Required. One row per accessory. For phones/laptops: one row PER PHONE, same name."),
     ("tracking", "Counted by", ("type", "tracking", "counted", "tracking type"),
-     "Quantity (chargers, cases…) or Serial/IMEI (phones, laptops). Blank = Quantity, "
-     "or Serial/IMEI if the row has an IMEI/serial."),
+     "Quantity (chargers, cases…), Serial/IMEI (phones, laptops) or Service (sticker "
+     "cutting, printing, repairs — no stock). Blank = Quantity, or Serial/IMEI if the row "
+     "has an IMEI/serial."),
     ("selling_price", "Selling price", ("price", "selling price (₦)", "sale price", "retail price"),
      "Required. Naira, e.g. 8500 or ₦8,500."),
     ("quantity", "Quantity", ("qty", "quantity in stock", "stock", "in stock", "how many",
@@ -223,9 +224,11 @@ def _tracking(text: str) -> str | None:
         return None
     if t in ("quantity", "qty", "q", "count", "counted", "accessory", "accessories"):
         return "quantity"
+    if t in ("service", "services", "job", "labour", "labor", "work"):
+        return "service"
     if any(w in t for w in ("serial", "imei", "phone", "laptop", "unit")):
         return "serialized"
-    raise RowProblem(f"{HEADER['tracking']} “{text}” should be Quantity or Serial/IMEI.")
+    raise RowProblem(f"{HEADER['tracking']} “{text}” should be Quantity, Serial/IMEI or Service.")
 
 
 def _condition(text: str) -> str | None:
@@ -325,6 +328,14 @@ def run_import(db: Session, content: bytes, filename: str, actor: User,
                        if r.values.get("imei1") or r.values.get("imei2") or r.values.get("serial")]
             tracking = _tracking(v.get("tracking", "")) or ("serialized" if has_ids else "quantity")
             result["tracking_type"] = tracking
+            if tracking == "service":
+                if len(group.rows) > 1:
+                    raise RowProblem(f"This service appears on {len(group.rows)} rows "
+                                     f"({', '.join(map(str, numbers))}). Use one row.")
+                if has_ids or _whole(v.get("quantity", ""), HEADER["quantity"]):
+                    raise RowProblem("Services have no stock: leave Quantity, IMEI and serial "
+                                     "empty. Put the cost of materials per job in "
+                                     f"{HEADER['cost']}.")
             if tracking == "quantity":
                 if len(group.rows) > 1:
                     raise RowProblem(f"This product appears on {len(group.rows)} rows "
@@ -347,6 +358,8 @@ def run_import(db: Session, content: bytes, filename: str, actor: User,
                                         "category"),
                 "brand_id": _resolve(db, brands, v.get("brand", ""), actor, request, "brand"),
             }
+            if tracking == "service":
+                body["service_cost"] = _money(v.get("cost", ""), HEADER["cost"])
             if tracking == "quantity":
                 body["condition"] = _condition(v.get("condition", "")) or "new"
                 qty = _whole(v.get("quantity", ""), HEADER["quantity"])

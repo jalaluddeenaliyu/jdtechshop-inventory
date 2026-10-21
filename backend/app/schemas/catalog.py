@@ -5,7 +5,7 @@ from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-TrackingName = Literal["serialized", "quantity"]
+TrackingName = Literal["serialized", "quantity", "service"]
 ConditionName = Literal["new", "used", "refurbished"]
 
 SKU_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9._/-]{0,39}$")
@@ -188,6 +188,8 @@ class ProductCreate(BaseModel):
     condition: ConditionName | None = None
     selling_price: Decimal = Field(ge=0, max_digits=12, decimal_places=2)
     reorder_level: int | None = Field(default=None, ge=0, le=100000)
+    # Services only: optional cost of one job (materials), so profit is right.
+    service_cost: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=4)
     # Optional opening stock (quantity-counted products only): both or neither.
     opening_quantity: int | None = Field(default=None, ge=1, le=1_000_000)
     opening_unit_cost: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=4)
@@ -198,7 +200,7 @@ class ProductCreate(BaseModel):
     _b = field_validator("barcode")(_clean_barcode)
     _p = field_validator("selling_price")(to_kobo)
 
-    @field_validator("opening_quantity", "opening_unit_cost", mode="before")
+    @field_validator("opening_quantity", "opening_unit_cost", "service_cost", mode="before")
     @classmethod
     def _blank_opening(cls, v):
         return None if isinstance(v, str) and not v.strip() else v
@@ -209,6 +211,11 @@ class ProductCreate(BaseModel):
         if (q is None) != (c is None):
             raise ValueError("Enter what each one cost you." if c is None
                              else "Enter how many you have now.")
+        if q is not None and self.tracking_type == "service":
+            raise ValueError("Services have no stock, so leave the quantity and cost empty. "
+                             "Use “Cost per job” for materials.")
+        if self.service_cost is not None and self.tracking_type != "service":
+            raise ValueError("“Cost per job” is only for services.")
         if q is not None and self.tracking_type == "serialized":
             raise ValueError("Phones and other serial/IMEI items are added unit by unit, each "
                              "with its IMEI and cost, after the product is created.")

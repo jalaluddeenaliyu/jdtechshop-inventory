@@ -199,9 +199,10 @@ export function ProductsPage() {
       <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2">
         <FilterSelect label="Tracking" inline value={filters.tracking_type}
           onChange={(v) => setFilter("tracking_type", v as Filters["tracking_type"])}>
-          <option value="">Serial/IMEI and quantity items</option>
+          <option value="">All products and services</option>
           <option value="serialized">Serial / IMEI items only</option>
           <option value="quantity">Quantity items only</option>
+          <option value="service">Services only</option>
         </FilterSelect>
         {isOwner && (
           <Checkbox label="Show turned-off products" checked={filters.include_inactive}
@@ -307,6 +308,9 @@ function FilterSelect({
 }
 
 function StockCell({ p }: { p: Product }) {
+  if (p.tracking_type === "service") {
+    return <div className="text-right"><Badge tone="neutral">Service</Badge></div>;
+  }
   return (
     <div className="flex flex-col-reverse items-end gap-1 sm:flex-row sm:items-center sm:justify-end sm:gap-2 whitespace-nowrap">
       {p.is_active && p.qty_on_hand === 0 && <Badge tone="alert">Out</Badge>}
@@ -322,6 +326,11 @@ function hasCost(p: Product) {
 
 /** Cost price with the profit each sale makes at today's selling price. */
 function CostCell({ p }: { p: Product }) {
+  if (p.tracking_type === "service" && Number(p.selling_price) === 0) {
+    return <td className="hidden md:table-cell px-2 sm:px-4 py-3 text-right text-sm text-muted whitespace-nowrap">
+      {hasCost(p) ? <>Cost per job {naira(p.cost_each)}</> : "—"}
+    </td>;
+  }
   if (!hasCost(p)) {
     return <td className="hidden md:table-cell px-2 sm:px-4 py-3 text-right text-sm text-muted whitespace-nowrap">Not yet known</td>;
   }
@@ -354,7 +363,7 @@ function ProductActions({ p, onEdit, onOpening }: {
             <ScanLine className="size-4" aria-hidden /> Add units
           </Button>
         )}
-        {!p.opening_stock_open && p.is_active && (
+        {!p.opening_stock_open && p.is_active && p.tracking_type !== "service" && (
           <Link to={`/purchases/new?product=${p.id}`} title="Record stock bought from a supplier"
             className="inline-flex items-center gap-2 rounded-md px-3 h-8 text-sm font-medium text-board hover:bg-board/5 whitespace-nowrap">
             <Truck className="size-4" aria-hidden /> Restock
@@ -424,6 +433,7 @@ function ProductTable({
                   {p.condition && p.condition !== "new" && <> · {p.condition}</>}
                   {p.category_name && <span> · {p.category_name}</span>}
                   {p.tracking_type === "serialized" && <span> · Serial/IMEI</span>}
+                  {p.tracking_type === "service" && <span> · Service</span>}
                 </div>
                 {isOwner && (
                   <div className="min-[1340px]:hidden mt-1.5 -ml-3 flex flex-wrap gap-0.5">
@@ -432,7 +442,8 @@ function ProductTable({
                 )}
               </td>
               <td className="px-2 sm:px-4 py-3 text-right num whitespace-nowrap">
-                {naira(p.selling_price)}
+                {p.tracking_type === "service" && Number(p.selling_price) === 0
+                  ? <span className="text-sm text-muted">Price at till</span> : naira(p.selling_price)}
                 {isOwner && hasCost(p) && (
                   <div className="md:hidden text-sm text-muted">Cost {naira(p.cost_each)}</div>
                 )}
@@ -538,7 +549,8 @@ function ProductForm({
   }
 
   // Owners can correct a wrongly entered cost price for the stock on hand.
-  const canFixCost = editing && product.cost_each !== null && (product.tracking_type === "quantity" || product.qty_on_hand > 0);
+  const canFixCost = editing && product.stock_value !== null &&
+    (product.tracking_type !== "serialized" || product.qty_on_hand > 0);
   const costChanged = canFixCost && form.cost_each.trim() !== "" &&
     Number(form.cost_each.replaceAll(",", "").replace("₦", "").trim()) !== Number(product.cost_each ?? 0);
 
@@ -569,6 +581,9 @@ function ProductForm({
     if (editing) body.is_active = form.is_active;
     else {
       if (!form.sku.trim()) delete body.sku; // let the server generate one
+      if (form.tracking_type === "service" && form.opening_unit_cost.trim()) {
+        body.service_cost = form.opening_unit_cost.replaceAll(",", "").trim();
+      }
       if (form.tracking_type === "quantity" && (form.opening_quantity.trim() || form.opening_unit_cost.trim())) {
         body.opening_quantity = form.opening_quantity.trim() === "" ? null : Number(form.opening_quantity);
         body.opening_unit_cost = form.opening_unit_cost.replaceAll(",", "").trim() || null;
@@ -602,10 +617,11 @@ function ProductForm({
 
       <fieldset className="space-y-2">
         <legend className="text-sm font-medium">How is it counted?</legend>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2 sm:grid-cols-3">
           {([
             ["serialized", "Serial / IMEI", "Phones, laptops, tablets: each unit is recorded with its own serial or IMEI number."],
             ["quantity", "Quantity", "Chargers, cases, cables: counted, not individually identified."],
+            ["service", "Service", "Sticker cutting, printing, repairs: sold at the till, no stock to count."],
           ] as const).map(([value, title, hint]) => (
             <label key={value}
               className={`flex gap-3 rounded-md border p-3 ${form.tracking_type === value ? "border-board bg-board/5" : "border-line"}
@@ -638,6 +654,16 @@ function ProductForm({
           </div>
         </div>
       )}
+      {form.tracking_type === "service" && !editing && (
+        <div className="rounded-md border border-line bg-paper/60 p-4">
+          <p className="text-sm font-medium">About services</p>
+          <p className="text-sm text-muted">No stock is counted. Set a fixed price, or leave the selling price at 0 to type the price at the till for each job.</p>
+          <div className="mt-3 sm:w-1/2">
+            <TextInput label="Cost per job (₦, optional)" inputMode="decimal" value={form.opening_unit_cost}
+              error={errors.service_cost} onChange={set("opening_unit_cost")} placeholder="e.g. vinyl and ink" />
+          </div>
+        </div>
+      )}
       {!editing && form.tracking_type === "serialized" && (
         <div className="rounded-md border border-line bg-paper/60 p-4 text-sm">
           <p className="font-medium">Next: add the units you have</p>
@@ -655,17 +681,19 @@ function ProductForm({
         {canFixCost && (
           <div className="sm:col-span-2 rounded-md border border-line bg-paper/60 p-4">
             <div className="grid gap-4 sm:grid-cols-2">
-              <TextInput label={product.tracking_type === "serialized" ? "Cost price of each one in stock (₦)" : "Cost price, each (₦)"}
+              <TextInput label={product.tracking_type === "serialized" ? "Cost price of each one in stock (₦)"
+                  : product.tracking_type === "service" ? "Cost per job (₦)" : "Cost price, each (₦)"}
                 inputMode="decimal" value={form.cost_each} error={errors.cost_each} onChange={set("cost_each")}
                 hint={product.tracking_type === "serialized"
                   ? `Sets the same cost on all ${product.qty_on_hand} in stock. To fix one phone, use Inventory → Serial / IMEI units.`
+                  : product.tracking_type === "service" ? "Materials for one job. Used for profit on future sales."
                   : `Correct it if it was entered wrongly. Applies to the ${product.qty_on_hand} in stock.`} />
               {costChanged && (
                 <TextInput label="Why the cost changed (optional)" value={form.cost_reason} onChange={set("cost_reason")}
                   maxLength={200} placeholder="e.g. Typed 5000, it was 500" />
               )}
             </div>
-            {costChanged && (
+            {costChanged && product.tracking_type !== "service" && (
               <p className="mt-2 text-sm text-muted">
                 Stock value changes from {naira(product.stock_value)} to{" "}
                 <span className="font-medium text-ink">
@@ -675,7 +703,11 @@ function ProductForm({
             )}
           </div>
         )}
-        {form.tracking_type === "quantity" ? (
+        {form.tracking_type === "service" ? (
+          <div className="text-sm text-muted sm:pt-7">
+            {Number(form.selling_price || 0) === 0 ? "Price 0 = the price is typed at the till for each job." : "Fixed price for each job."}
+          </div>
+        ) : form.tracking_type === "quantity" ? (
           <SelectInput label="Condition" value={form.condition} onChange={set("condition")}>
             <option value="new">New</option>
             <option value="used">Used</option>
@@ -699,9 +731,11 @@ function ProductForm({
           spellCheck={false} hint="Optional. Scan it into this box." />
         <TextInput label="Model" value={form.model} error={errors.model} onChange={set("model")}
           placeholder="e.g. SM-A546E" />
-        <TextInput label="Low-stock level" type="number" inputMode="numeric" min={0} value={form.reorder_level}
-          error={errors.reorder_level} onChange={set("reorder_level")}
-          hint="Blank uses the shop default from Settings." />
+        {form.tracking_type !== "service" && (
+          <TextInput label="Low-stock level" type="number" inputMode="numeric" min={0} value={form.reorder_level}
+            error={errors.reorder_level} onChange={set("reorder_level")}
+            hint="Blank uses the shop default from Settings." />
+        )}
       </div>
       <TextArea label="Specifications" value={form.specifications} error={errors.specifications}
         onChange={set("specifications")} placeholder="e.g. 8GB RAM, 128GB storage, 6.4″ screen" />
