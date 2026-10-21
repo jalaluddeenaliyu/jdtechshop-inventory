@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { Button, Dialog, Notice, Spinner } from "../components/ui";
 import { Logo } from "../components/Logo";
+import { ShareWhatsApp } from "../components/ShareWhatsApp";
 import { api, type BusinessSettings, type Sale } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { dateOnly, dateTime, naira, phone } from "../lib/format";
@@ -51,6 +52,7 @@ export function ReceiptPage() {
             </Button>
           )}
           <Link to="/sales" className="inline-flex items-center rounded-md border border-line bg-white px-3.5 h-10 text-sm font-medium hover:border-board-300">New sale</Link>
+          <ShareWhatsApp sale={sale} shop={shop} />
           <Button onClick={() => window.print()}><Printer className="size-4" aria-hidden /> Print receipt</Button>
         </div>
       </div>

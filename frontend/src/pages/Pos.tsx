@@ -2,6 +2,7 @@ import { CheckCircle2, Minus, Plus, Printer, ScanLine, Search, Trash2, UserPlus,
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Badge, Button, Dialog, Notice, PageHeader, Panel, Spinner } from "../components/ui";
+import { ShareWhatsApp } from "../components/ShareWhatsApp";
 import {
   api,
   ApiError,
@@ -219,6 +220,7 @@ function Till() {
             <Link to={`/sales/${done.id}?print=1`} className="inline-flex items-center gap-1 font-medium underline">
               <Printer className="size-4" aria-hidden /> Print receipt
             </Link>
+            {settings && <>{" · "}<ShareWhatsApp compact sale={done} shop={settings} /></>}
           </Notice>
         )}
         {error && <Notice tone="error">{error}</Notice>}
