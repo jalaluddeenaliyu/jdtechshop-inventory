@@ -21,3 +21,4 @@ frontend/dist/
 
 # Server and backup logs
 logs/
+*.tsbuildinfo
