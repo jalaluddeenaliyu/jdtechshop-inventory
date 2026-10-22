@@ -98,4 +98,5 @@ class Dashboard(BaseModel):
     customers_overdue: Decimal | None = None
     owed_to_suppliers: Decimal | None = None
     pending_adjustments: int | None = None
+    quick_sales_to_review: int | None = None  # their cost is not in profit yet
     recent_activity: list[Activity] | None = None

@@ -32,6 +32,7 @@ from app.models import (
 )
 from app.models.units import UnitStatus
 from app.services import stock as stock_service
+from app.services.catalog import ensure_not_built_in
 
 DEFAULT_REASON = "Added by mistake"
 
@@ -43,6 +44,7 @@ def _exists(db: Session, query) -> bool:
 def remove_product(db: Session, product_id: int, reason: str | None, actor: User,
                    request: Request | None) -> dict:
     product: Product = stock_service.lock_product(db, product_id)
+    ensure_not_built_in(product)
     name = product.name
     reason = " ".join((reason or "").split())[:200] or DEFAULT_REASON
 

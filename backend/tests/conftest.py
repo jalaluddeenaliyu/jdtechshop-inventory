@@ -84,6 +84,11 @@ def clean_tables():
             "INSERT INTO customers (name, is_walk_in, is_active) "
             "VALUES ('Walk-in customer', true, true)"
         ))
+        conn.execute(text(  # the built-in quick-sale item (migration 0011)
+            "INSERT INTO products (sku, name, tracking_type, selling_price, avg_cost, qty_on_hand, "
+            "is_active, is_quick_sale) VALUES ('QUICK-SALE', 'Quick sale item', 'service', 0, 0, 0, "
+            "true, true)"
+        ))
         conn.execute(text(
             "INSERT INTO payment_methods (name, is_active, sort_order) VALUES "
             "('Cash', true, 1), ('Bank transfer', true, 2), ('POS terminal', true, 3)"

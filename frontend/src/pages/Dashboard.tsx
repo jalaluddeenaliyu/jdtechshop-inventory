@@ -28,6 +28,16 @@ export function DashboardPage() {
     <>
       <PageHeader title={`Good day, ${firstName}`} description={todayLong()} actions={<PeriodPicker value={period} onChange={setPeriod} />} />
       {error && <Notice tone="error">{error}</Notice>}
+      {isOwner && !!data?.quick_sales_to_review && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-pad/60 bg-pad/15 px-4 py-3 text-sm">
+          <AlertTriangle className="size-4 shrink-0" aria-hidden />
+          <span>
+            <span className="font-medium">{data.quick_sales_to_review} quick {data.quick_sales_to_review === 1 ? "sale is" : "sales are"} waiting for review.</span>{" "}
+            Their cost isn't counted yet, so profit shows higher than it really is.
+          </span>
+          <Link to="/sales?tab=review" className="font-medium text-board underline">Review now</Link>
+        </div>
+      )}
       {!data && !error && <Spinner />}
       {data && f && (
         <div className="space-y-5">

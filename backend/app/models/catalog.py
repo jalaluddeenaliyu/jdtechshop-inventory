@@ -106,6 +106,9 @@ class Product(TimestampMixin, Base):
     reorder_level: Mapped[int | None] = mapped_column(Integer)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    # The one built-in "Quick sale item" (migration 0011): never listed, edited or stocked.
+    is_quick_sale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False,
+                                                server_default="false")
 
     category: Mapped[Category | None] = relationship(lazy="selectin")
     brand: Mapped[Brand | None] = relationship(lazy="selectin")

@@ -419,6 +419,10 @@ export interface SaleLine {
   unit_cost_snapshot: string | null;
   cost_total_snapshot: string | null;
   returned_quantity: number;
+  /** Typed in at the till (quick sale) */
+  quick_name: string | null;
+  /** Quick sale the owner hasn't reviewed yet */
+  review_pending: boolean;
 }
 
 export interface SalePayment {
@@ -530,6 +534,8 @@ export interface DashboardData {
   customers_overdue: string | null;
   owed_to_suppliers: string | null;
   pending_adjustments: number | null;
+  /** Quick sales whose cost isn't in profit yet */
+  quick_sales_to_review: number | null;
   recent_activity: { when: string; who: string | null; action: string; detail: string }[] | null;
 }
 
@@ -567,4 +573,25 @@ export interface Page<T> {
   total: number;
   page: number;
   page_size: number;
+}
+
+/** A quick-sale item (sold before it was in the catalogue), waiting for or after the owner's review. */
+export interface QuickLine {
+  line_id: number;
+  sale_id: number;
+  receipt_no: string;
+  sold_at: string;
+  business_date: string;
+  sold_by_name: string;
+  customer_name: string;
+  quick_name: string;
+  quantity: number;
+  unit_price: string;
+  line_total: string;
+  reviewed: boolean;
+  reviewed_at: string | null;
+  reviewed_by_name: string | null;
+  /** null = only its cost was entered */
+  linked_product_name: string | null;
+  cost_total: string;
 }

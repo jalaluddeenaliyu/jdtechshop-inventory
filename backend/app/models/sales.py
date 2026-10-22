@@ -91,6 +91,8 @@ class SaleLine(Base):
                         name="discount_within_price"),
         CheckConstraint("line_total = quantity * unit_price - discount", name="line_total_adds_up"),
         CheckConstraint("unit_cost_snapshot >= 0 AND cost_total_snapshot >= 0", name="costs_nonneg"),
+        CheckConstraint("needs_review = (quick_name IS NOT NULL)", name="quick_line_named"),
+        CheckConstraint("reviewed_at IS NULL OR needs_review", name="review_only_quick_lines"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -104,6 +106,14 @@ class SaleLine(Base):
     # Frozen at the moment of sale, so later cost changes never change past profit.
     unit_cost_snapshot: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False)
     cost_total_snapshot: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False)
+    # Quick sale: an item typed in at the till before it was in the catalogue. It points to the
+    # built-in "Quick sale item" until the owner reviews it once (links it to the real product,
+    # or enters what it cost). The database allows only that one change (migration 0011).
+    quick_name: Mapped[str | None] = mapped_column(String(160))
+    needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False,
+                                               server_default="false")
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
     product: Mapped[Product] = relationship(lazy="selectin")
 

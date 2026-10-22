@@ -102,4 +102,5 @@ def test_staff_cannot_delete_products(owner_client, staff_client):
     p = _product(owner_client)
     assert staff_client.delete(f"/api/products/{p['id']}").status_code == 403
     with SessionLocal() as db:
-        assert db.scalar(select(func.count()).select_from(Product)) == 1
+        assert db.scalar(select(func.count()).select_from(Product)
+                         .where(Product.is_quick_sale.is_(False))) == 1

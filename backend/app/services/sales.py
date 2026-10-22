@@ -94,6 +94,17 @@ def next_receipt_no(db: Session, day: date | None = None) -> tuple[str, date]:
 EARLIEST_SALE_DATE = date(2000, 1, 1)
 
 
+def quick_sale_product(db: Session) -> Product:
+    product = db.scalar(select(Product).where(Product.is_quick_sale.is_(True)))
+    if product is None:  # created by migration 0011; should never happen
+        raise HTTPException(500, "The quick-sale item is missing. Run the database migrations.")
+    return product
+
+
+def quick_product_id(db: Session) -> int | None:
+    return db.scalar(select(Product.id).where(Product.is_quick_sale.is_(True)))
+
+
 def _check_sale_date(sale_date: date | None, actor: User) -> date:
     """The shop day the sale belongs to. Only the owner may enter a sale for an earlier day."""
     today = business_today()
@@ -138,9 +149,18 @@ def create_sale(db: Session, data: SaleIn, actor: User,
     if len(unit_ids) != len(set(unit_ids)):
         raise HTTPException(422, "The same phone/laptop is in the cart twice.")
 
+    quick_id = quick_sale_product(db).id
+    if any(line.product_id == quick_id for line in data.lines):
+        raise HTTPException(422, "Use “Quick sale” at the till to sell an item that is not in "
+                                 "the catalogue yet.")
+    has_quick = any(line.quick_name for line in data.lines)
+
+    def pid_of(line) -> int:
+        return quick_id if line.quick_name else line.product_id
+
     # Lock products (id order), then units (id order): the same order in every sale.
     products: dict[int, Product] = {}
-    for pid in sorted({line.product_id for line in data.lines}):
+    for pid in sorted({pid_of(line) for line in data.lines}):
         product = db.get(Product, pid, with_for_update=True, populate_existing=True)
         if product is None:
             raise HTTPException(422, "A product in the cart no longer exists.")
@@ -155,7 +175,9 @@ def create_sale(db: Session, data: SaleIn, actor: User,
     limit_pct = settings.staff_max_discount_percent
     priced = []  # (line_in, product, unit, unit_price, gross)
     for n, line in enumerate(data.lines, 1):
-        product = products[line.product_id]
+        product = products[pid_of(line)]
+        if line.quick_name and len(line.quick_name) < 2:
+            raise HTTPException(422, f"Line {n}: type a name for the quick-sale item.")
         if not product.is_active:
             raise HTTPException(422, f"Line {n}: “{product.name}” is turned off and cannot be sold.")
         unit = None
@@ -182,7 +204,8 @@ def create_sale(db: Session, data: SaleIn, actor: User,
         if product.tracking_type == TrackingType.SERVICE and price == 0:
             # "Price set at the till": the cashier types what this job costs.
             if line.unit_price is None:
-                raise HTTPException(422, f"Line {n}: enter the price for {product.name}.")
+                raise HTTPException(422, f"Line {n}: enter the price for "
+                                         f"{line.quick_name or product.name}.")
             price = line.unit_price
         elif line.unit_price is not None and line.unit_price != price:
             raise HTTPException(422, f"Line {n}: the price of {product.name} is fixed at "
@@ -265,6 +288,7 @@ def create_sale(db: Session, data: SaleIn, actor: User,
                 quantity=line.quantity, unit_price=price, discount=line.discount,
                 line_total=gross - line.discount, unit_cost_snapshot=unit_cost,
                 cost_total_snapshot=(Decimal(line.quantity) * unit_cost).quantize(COST),
+                quick_name=line.quick_name, needs_review=line.quick_name is not None,
             )
             db.add(sale_line)
             db.flush()
@@ -289,6 +313,9 @@ def create_sale(db: Session, data: SaleIn, actor: User,
                               "customer": customer.name,
                               "items": sum(line.quantity for line, *_ in priced),
                               "discount": str(discount_total),
+                              **({"quick_sale_items": [line.quick_name for line, *_ in priced
+                                                       if line.quick_name]}
+                                 if has_quick else {}),
                               **({"sale_date": sale_day.isoformat(),
                                   "entered_late": True} if backdated else {})},
                      request=request)
@@ -326,7 +353,8 @@ def sale_out(db: Session, sale: Sale, show_cost: bool, detail: bool = False,
         for line in sale.lines:
             u = units.get(line.unit_id) if line.unit_id else None
             lines.append(SaleLineOut(
-                id=line.id, product_id=line.product_id, product_name=line.product.name,
+                id=line.id, product_id=line.product_id,
+                product_name=line.quick_name if line.product.is_quick_sale else line.product.name,
                 product_sku=line.product.sku, tracking_type=line.product.tracking_type,
                 unit_id=line.unit_id, serial_number=u.serial_number if u else None,
                 imei1=u.imei1 if u else None, imei2=u.imei2 if u else None,
@@ -336,6 +364,8 @@ def sale_out(db: Session, sale: Sale, show_cost: bool, detail: bool = False,
                 unit_cost_snapshot=line.unit_cost_snapshot if show_cost else None,
                 cost_total_snapshot=line.cost_total_snapshot if show_cost else None,
                 returned_quantity=returned_qty.get(line.id, 0),
+                quick_name=line.quick_name,
+                review_pending=line.needs_review and line.reviewed_at is None,
             ))
         # Payments taken at the till, then the parts of later payments that paid this sale.
         at_till = db.execute(

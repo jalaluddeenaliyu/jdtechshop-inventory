@@ -32,7 +32,7 @@ def upload(client, content: bytes, commit=False, name="stock.xlsx"):
 
 def counts():
     with SessionLocal() as db:
-        return (db.scalar(select(func.count()).select_from(Product)),
+        return (db.scalar(select(func.count()).select_from(Product).where(Product.is_quick_sale.is_(False))),
                 db.scalar(select(func.count()).select_from(ProductUnit)),
                 db.scalar(select(func.count()).select_from(StockMovement)))
 

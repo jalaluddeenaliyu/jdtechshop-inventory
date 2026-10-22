@@ -287,6 +287,7 @@ const ACTION_LABELS: Record<string, string> = {
   "products.imported": "Imported products from a file",
   "stock.opening": "Entered opening stock",
   "stock.opening_units": "Added phones/laptops",
+  "sale.quick_reviewed": "Reviewed a quick sale",
 };
 
 function describe(e: AuditEntry): string {
@@ -305,6 +306,9 @@ function describe(e: AuditEntry): string {
   }
   if (e.action === "product.removed") {
     return `${d.name}: took ${d.quantity_removed} out of stock (${naira(String(d.value_removed))} at cost).${reason}`;
+  }
+  if (e.action === "sale.quick_reviewed") {
+    return `${d.item} × ${d.quantity} on ${d.receipt_no}: ${d.product ? `linked to ${d.product}${d.unit ? ` (${d.unit})` : ""}` : "cost entered"}, ${naira(String(d.cost_each))} each. Profit ${naira(String(d.profit))}.`;
   }
   if (e.action === "products.imported") {
     return `${d.products} products, ${d.items_in_stock} items in stock, ${naira(String(d.stock_value))} at cost${d.file ? ` (${d.file})` : ""}`;

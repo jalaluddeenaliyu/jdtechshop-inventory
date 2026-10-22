@@ -1,7 +1,7 @@
-import { CalendarDays, CheckCircle2, Minus, Plus, Printer, ScanLine, Search, Trash2, UserPlus, UserRound, X } from "lucide-react";
+import { CalendarDays, CheckCircle2, Minus, Plus, Printer, ScanLine, Search, Trash2, UserPlus, UserRound, X, Zap } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Badge, Button, Dialog, Notice, PageHeader, Panel, Spinner } from "../components/ui";
+import { Badge, Button, Dialog, Notice, PageHeader, Panel, Spinner, TextInput } from "../components/ui";
 import { ShareWhatsApp } from "../components/ShareWhatsApp";
 import {
   api,
@@ -15,38 +15,63 @@ import {
   type PosProduct,
   type PosResult,
   type PosUnit,
+  type QuickLine,
   type Sale,
   type Unit,
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { dateOnly, naira, phone, todayISO } from "../lib/format";
 import { CustomerForm } from "./Customers";
+import { QuickReview } from "./QuickReview";
 import { SalesHistory } from "./SalesHistory";
 
 export function PosPage() {
   const [params, setParams] = useSearchParams();
-  const tab = params.get("tab") === "history" ? "history" : "new";
+  const { user } = useAuth();
+  const isOwner = user?.role === "owner";
+  const asked = params.get("tab");
+  const tab = asked === "history" ? "history" : asked === "review" && isOwner ? "review" : "new";
+  const [toReview, setToReview] = useState<number | null>(null);
+  useEffect(() => {
+    if (isOwner) api.get<QuickLine[]>("/quick-sales").then((r) => setToReview(r.length)).catch(() => {});
+  }, [isOwner, tab]);
+  const tabs: [string, string][] = [["new", "New sale"], ["history", "Sales history"]];
+  if (isOwner) tabs.push(["review", "To review"]);
   return (
     <>
       <PageHeader title="Sales / POS" />
-      <div role="tablist" aria-label="Sales sections" className="mb-5 flex gap-1 border-b border-line no-print">
-        {([["new", "New sale"], ["history", "Sales history"]] as const).map(([id, label]) => (
+      <div role="tablist" aria-label="Sales sections" className="mb-5 flex gap-1 overflow-x-auto border-b border-line no-print">
+        {tabs.map(([id, label]) => (
           <button key={id} role="tab" aria-selected={tab === id}
-            onClick={() => setParams(id === "history" ? { tab: "history" } : {})}
-            className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2.5 text-[15px] ${
+            onClick={() => setParams(id === "new" ? {} : { tab: id })}
+            className={`-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-[15px] ${
               tab === id ? "border-pad text-ink font-medium" : "border-transparent text-muted hover:text-ink"}`}>
             {label}
+            {id === "review" && !!toReview && (
+              <span className="rounded-full bg-pad px-1.5 text-xs font-semibold text-ink num" aria-label={`${toReview} waiting`}>{toReview}</span>
+            )}
           </button>
         ))}
       </div>
-      <div role="tabpanel">{tab === "history" ? <SalesHistory /> : <Till />}</div>
+      <div role="tabpanel">
+        {tab === "history" ? <SalesHistory /> : tab === "review" ? <QuickReview onCount={setToReview} /> : <Till />}
+      </div>
     </>
   );
 }
 
 // ---------------- The till ----------------
 
-type CartLine = { key: number; product: PosProduct; unit: PosUnit | null; quantity: number; discount: string; price: string };
+type CartLine = {
+  key: number; product: PosProduct; unit: PosUnit | null; quantity: number; discount: string; price: string;
+  /** Quick sale: typed in at the till, not in the catalogue yet (the owner reviews it later). */
+  quick?: boolean;
+};
+
+/** A cart line for an item that is not in the catalogue yet. Priced at the till like an open-price service. */
+const quickProduct = (name: string): PosProduct => ({
+  id: -1, name, sku: "", barcode: null, tracking_type: "service", condition: null, selling_price: "0", qty_on_hand: 0,
+});
 
 const isService = (p: Pick<PosProduct, "tracking_type">) => p.tracking_type === "service";
 /** A service priced at ₦0 means "type the price at the till" (e.g. custom printing jobs). */
@@ -57,7 +82,7 @@ type PayRow = { key: number; method_id: string; amount: string };
 let nextKey = 1;
 const money = (s: string) => Number(s.replaceAll(",", "").trim()) || 0;
 const kobo = (n: number) => Math.round(n * 100);
-const unitLabel = (u: PosUnit) => [u.imei1 && `IMEI ${u.imei1}`, u.serial_number && `S/N ${u.serial_number}`].filter(Boolean).join(" · ");
+export const unitLabel = (u: PosUnit) => [u.imei1 && `IMEI ${u.imei1}`, u.serial_number && `S/N ${u.serial_number}`].filter(Boolean).join(" · ");
 
 function Till() {
   const { user } = useAuth();
@@ -80,6 +105,7 @@ function Till() {
   const [lineErrors, setLineErrors] = useState<Record<number, string>>({});
   const [picking, setPicking] = useState<PosProduct | null>(null);
   const [done, setDone] = useState<Sale | null>(null);
+  const [quickName, setQuickName] = useState<string | null>(null); // the Quick sale box is open
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -142,6 +168,14 @@ function Till() {
     searchRef.current?.focus();
   }
 
+  function addQuick(name: string, price: string, quantity: number) {
+    setError(null);
+    setDone(null);
+    setCart((c) => [...c, { key: nextKey++, product: quickProduct(name), unit: null, quantity, discount: "", price, quick: true }]);
+    setQuickName(null);
+    searchRef.current?.focus();
+  }
+
   function setQty(line: CartLine, quantity: number) {
     if (quantity < 1) return;
     if (!isService(line.product) && quantity > line.product.qty_on_hand) return flashError(`Only ${line.product.qty_on_hand} ${line.product.name} in stock.`);
@@ -184,7 +218,10 @@ function Till() {
     try {
       const sale = await api.post<Sale>("/sales", {
         customer_id: customer && !customer.is_walk_in ? customer.id : null,
-        lines: cart.map((l) => ({
+        lines: cart.map((l) => l.quick ? {
+          quick_name: l.product.name, quantity: l.quantity, unit_price: money(l.price).toFixed(2),
+          discount: money(l.discount).toFixed(2),
+        } : ({
           product_id: l.product.id, unit_id: l.unit?.id ?? null, quantity: l.quantity,
           discount: money(l.discount).toFixed(2),
           ...(isOpenPrice(l.product) ? { unit_price: money(l.price).toFixed(2) } : {}),
@@ -217,7 +254,13 @@ function Till() {
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_24rem] items-start">
       <div className="space-y-4 min-w-0">
-        <ScanBox inputRef={searchRef} onPick={addResult} />
+        <div>
+          <ScanBox inputRef={searchRef} onPick={addResult} onQuick={(name) => setQuickName(name)} />
+          <button type="button" onClick={() => setQuickName("")}
+            className="mt-1.5 inline-flex items-center gap-1.5 text-sm font-medium text-board hover:underline">
+            <Zap className="size-4" aria-hidden /> Quick sale — item not in the app yet
+          </button>
+        </div>
         {done && (
           <Notice tone="success">
             <span className="font-medium">Sale {done.receipt_no} completed</span>
@@ -249,7 +292,8 @@ function Till() {
                       <div className="flex-1 min-w-48">
                         <p className="font-medium"><span className="text-muted num">{i + 1}.</span> {l.product.name}</p>
                         <p className="text-sm text-muted num">
-                          {l.unit ? unitLabel(l.unit) : isService(l.product) ? "Service" : l.product.sku}
+                          {l.quick ? <Badge tone="pad">Quick sale · not in the app yet</Badge>
+                            : l.unit ? unitLabel(l.unit) : isService(l.product) ? "Service" : l.product.sku}
                           {(l.unit?.condition ?? l.product.condition) && (l.unit?.condition ?? l.product.condition) !== "new" &&
                             ` · ${l.unit?.condition ?? l.product.condition}`}
                         </p>
@@ -408,6 +452,10 @@ function Till() {
         </Panel>
       </div>
 
+      <Dialog open={quickName !== null} title="Quick sale" onClose={() => setQuickName(null)}>
+        {quickName !== null && <QuickSaleForm initialName={quickName} isOwner={isOwner} onAdd={addQuick} />}
+      </Dialog>
+
       <Dialog open={!!picking} title={picking ? `Which ${picking.name}?` : ""} onClose={() => setPicking(null)}>
         {picking && (
           <UnitPicker product={picking} exclude={cart.filter((l) => l.unit).map((l) => l.unit!.id)}
@@ -423,7 +471,10 @@ function Till() {
 }
 
 /** Type or scan. Enter adds the match when there is exactly one obvious choice. */
-function ScanBox({ inputRef, onPick }: { inputRef: React.RefObject<HTMLInputElement | null>; onPick: (r: PosResult) => void }) {
+export function ScanBox({ inputRef, onPick, onQuick, placeholder = "Scan barcode or IMEI, or type a product name" }: {
+  inputRef?: React.RefObject<HTMLInputElement | null>; onPick: (r: PosResult) => void; onQuick?: (name: string) => void;
+  placeholder?: string;
+}) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState<PosResult[]>([]);
   const [active, setActive] = useState(0);
@@ -478,10 +529,10 @@ function ScanBox({ inputRef, onPick }: { inputRef: React.RefObject<HTMLInputElem
       <Search className="pointer-events-none absolute left-3.5 top-1/2 size-5 -translate-y-1/2 text-muted" aria-hidden />
       <input id="pos-search" ref={inputRef} autoFocus value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey}
         role="combobox" aria-expanded={results.length > 0} aria-controls="pos-results" aria-autocomplete="list"
-        placeholder="Scan barcode or IMEI, or type a product name"
+        placeholder={placeholder}
         className="block w-full h-12 rounded-lg border border-line bg-white pl-11 pr-3 text-base placeholder:text-muted/70
           focus:outline-none focus:border-board focus:ring-2 focus:ring-pad/40" />
-      {q.trim() && (results.length > 0 || notFound || searching) && (
+      {q.trim() && (
         <ul id="pos-results" role="listbox" className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-line bg-white shadow-lg">
           {results.map((r, i) => (
             <li key={`${r.kind}-${r.unit?.id ?? r.product.id}`} role="option" aria-selected={i === active}
@@ -504,14 +555,23 @@ function ScanBox({ inputRef, onPick }: { inputRef: React.RefObject<HTMLInputElem
           {!results.length && notFound && (
             <li className="px-3 py-2 text-muted">Nothing found for “{notFound}”. Check the code, or search by name.</li>
           )}
+          {!results.length && !notFound && !searching && <li className="px-3 py-2 text-muted">Nothing in your products matches “{q.trim()}”.</li>}
           {!results.length && !notFound && searching && <li className="px-3 py-2 text-muted">Searching…</li>}
+          {!searching && onQuick && (
+            <li role="option" aria-selected={false}
+              onMouseDown={(e) => { e.preventDefault(); const name = q.trim(); setQ(""); setResults([]); onQuick(name); }}
+              className="flex cursor-pointer items-center gap-2 border-t border-line bg-pad/10 px-3 py-2 text-sm hover:bg-pad/20">
+              <Zap className="size-4 shrink-0 text-board" aria-hidden />
+              <span><span className="font-medium">Quick sale “{q.trim()}”</span> <span className="text-muted">— sell it now, add it to your products later</span></span>
+            </li>
+          )}
         </ul>
       )}
     </div>
   );
 }
 
-function UnitPicker({ product, exclude, onPick }: { product: PosProduct; exclude: number[]; onPick: (u: PosUnit) => void }) {
+export function UnitPicker({ product, exclude, onPick }: { product: PosProduct; exclude: number[]; onPick: (u: PosUnit) => void }) {
   const [units, setUnits] = useState<Unit[] | null>(null);
   const [filter, setFilter] = useState("");
   useEffect(() => {
@@ -600,5 +660,47 @@ function CustomerBox({ customer, walkIn, onChange }: { customer: Customer | null
         {adding && <CustomerForm canTurnOff={false} onDone={(c) => { onChange(c); setAdding(false); }} />}
       </Dialog>
     </Panel>
+  );
+}
+
+/** Name, price and quantity of an item that is not in the catalogue yet. */
+function QuickSaleForm({ initialName, isOwner, onAdd }: {
+  initialName: string; isOwner: boolean; onAdd: (name: string, price: string, quantity: number) => void;
+}) {
+  const [name, setName] = useState(initialName);
+  const [price, setPrice] = useState("");
+  const [qty, setQty] = useState("1");
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const found: Record<string, string> = {};
+    const tidy = name.trim().replace(/\s+/g, " ");
+    if (tidy.length < 2) found.name = "Type what the item is, e.g. “Ring holder”.";
+    if (!(money(price) > 0)) found.price = "Enter the selling price.";
+    const n = Number(qty);
+    if (!Number.isInteger(n) || n < 1) found.qty = "At least 1.";
+    setErrors(found);
+    if (Object.keys(found).length) return;
+    onAdd(tidy, price, n);
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-4" noValidate>
+      <p className="text-sm text-muted">
+        For something you haven't added to your products yet. It's sold straight away;
+        {isOwner ? " you" : " the owner"} then link{isOwner ? "" : "s"} it to the real product (or enter{isOwner ? "" : "s"} its cost) under <span className="font-medium">Sales → To review</span>, so stock and profit come out right.
+      </p>
+      <TextInput label="What is it?" autoFocus={!initialName} value={name} maxLength={160}
+        onChange={(e) => setName(e.target.value)} error={errors.name} placeholder="e.g. Ring holder, 2m HDMI cable" />
+      <div className="grid grid-cols-2 gap-3">
+        <TextInput label="Price each (₦)" autoFocus={!!initialName} inputMode="decimal" value={price}
+          onChange={(e) => setPrice(e.target.value)} error={errors.price} placeholder="0.00" />
+        <TextInput label="Quantity" type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} error={errors.qty} />
+      </div>
+      <div className="flex justify-end">
+        <Button type="submit"><Plus className="size-4" aria-hidden /> Add to cart</Button>
+      </div>
+    </form>
   );
 }

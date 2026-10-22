@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.catalog import ConditionName, TrackingName, _blank_to_none, to_kobo
 
@@ -10,7 +10,10 @@ from app.schemas.catalog import ConditionName, TrackingName, _blank_to_none, to_
 class SaleLineIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    product_id: int
+    product_id: int | None = None
+    # Quick sale: an item not in the catalogue yet, typed in at the till with its price.
+    # Send quick_name + unit_price instead of product_id; the owner reviews it later.
+    quick_name: str | None = Field(default=None, max_length=160)
     unit_id: int | None = None  # required for serial/IMEI products: which phone/laptop
     quantity: int = Field(default=1, ge=1, le=10_000)
     # Discount for the whole line, in naira. The price itself always comes from the product,
@@ -19,6 +22,22 @@ class SaleLineIn(BaseModel):
     unit_price: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
 
     _k = field_validator("discount")(to_kobo)
+
+    @field_validator("quick_name", mode="before")
+    @classmethod
+    def _tidy_name(cls, v):
+        return " ".join(v.split()) or None if isinstance(v, str) else v
+
+    @model_validator(mode="after")
+    def _product_or_quick(self):
+        if (self.product_id is None) == (self.quick_name is None):
+            raise ValueError("Each line needs either a product or, for a quick sale, an item name.")
+        if self.quick_name is not None:
+            if self.unit_price is None:
+                raise ValueError(f"Enter the price for {self.quick_name}.")
+            if self.unit_id is not None:
+                raise ValueError("A quick-sale item has no IMEI/serial to pick.")
+        return self
 
 
 class SalePaymentIn(BaseModel):
@@ -67,6 +86,8 @@ class SaleLineOut(BaseModel):
     unit_cost_snapshot: Decimal | None  # owner only
     cost_total_snapshot: Decimal | None  # owner only
     returned_quantity: int = 0
+    quick_name: str | None = None  # typed in at the till (quick sale)
+    review_pending: bool = False  # quick sale not yet reviewed by the owner
 
 
 class SalePaymentOut(BaseModel):

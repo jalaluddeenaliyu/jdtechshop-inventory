@@ -376,11 +376,18 @@ def create_product(db: Session, data: ProductCreate, actor: User,
     return product
 
 
+def ensure_not_built_in(product: Product) -> None:
+    if product.is_quick_sale:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "“Quick sale item” is built in and cannot be changed or removed.")
+
+
 def update_product(db: Session, product_id: int, data: ProductUpdate, actor: User,
                    request: Request | None) -> Product:
     product = db.get(Product, product_id, with_for_update=True)
     if product is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found.")
+    ensure_not_built_in(product)
     fields = data.model_dump(exclude_unset=True)
 
     if fields.get("category_id") not in (None, product.category_id):
@@ -458,7 +465,7 @@ def list_products(
 ) -> tuple[list[Product], int, int]:
     """Returns (products on this page, total matching, the shop's default reorder level)."""
     default_reorder = default_reorder_level(db)
-    conditions = []
+    conditions = [Product.is_quick_sale.is_(False)]  # the built-in quick-sale item is never listed
     if not include_inactive:
         conditions.append(Product.is_active.is_(True))
     if q and q.strip():

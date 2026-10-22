@@ -17,6 +17,7 @@ from app.core import audit
 from app.models import Product, ProductUnit, TrackingType, User
 from app.models.units import ON_HAND_STATUSES
 from app.services import stock as stock_service
+from app.services.catalog import ensure_not_built_in
 
 FOUR = Decimal("0.0001")
 TWO = Decimal("0.01")
@@ -29,6 +30,7 @@ def _money(v: Decimal) -> str:
 def correct_cost(db: Session, product_id: int, new_cost: Decimal, reason: str | None,
                  actor: User, request: Request | None, unit_id: int | None = None) -> dict:
     product: Product = stock_service.lock_product(db, product_id)
+    ensure_not_built_in(product)
     new_cost = new_cost.quantize(FOUR)
     reason = " ".join((reason or "").split())[:200] or None
 

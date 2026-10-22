@@ -64,6 +64,7 @@ from app.schemas.reports import (
     StockAlert,
     TopProduct,
 )
+from app.services import quick_sales
 from app.services.debts import customer_balances, sale_balance_expr
 from app.services.purchasing import purchase_credit_expr, supplier_balances
 
@@ -244,6 +245,7 @@ ACTION_WORDS = {
     "stock.opening_units": "Opening units", "stock_adjustment.requested": "Adjustment requested",
     "stock_adjustment.approved": "Adjustment approved", "expense.recorded": "Expense",
     "product.created": "New product", "customer.created": "New customer",
+    "sale.quick_reviewed": "Quick sale reviewed",
 }
 
 
@@ -277,6 +279,7 @@ def dashboard(db: Session, d1: date, d2: date, viewer: User) -> Dashboard:
     supplier_ids = list(db.scalars(select(Supplier.id)))
     out.owed_to_suppliers = sum((max(ZERO, bought - paid) for bought, paid in
                                  supplier_balances(db, supplier_ids).values()), ZERO)
+    out.quick_sales_to_review = quick_sales.pending_count(db)
     out.pending_adjustments = db.scalar(select(func.count()).select_from(StockAdjustment)
                                         .where(StockAdjustment.status == AdjustmentStatus.PENDING))
     rows = db.execute(select(AuditLog, User.full_name).outerjoin(User, User.id == AuditLog.user_id)
@@ -290,6 +293,8 @@ def dashboard(db: Session, d1: date, d2: date, viewer: User) -> Dashboard:
 
 
 def _activity_detail(action: str, d: dict) -> str:
+    if action == "sale.quick_reviewed":
+        return f"{d.get('receipt_no')} · {d.get('item')} → {d.get('product') or 'cost entered'}"
     if action == "sale.completed":
         return f"{d.get('receipt_no')} · ₦{Decimal(d.get('total', 0)):,.2f}"
     if action in ("sale.returned", "sale.reversed"):
