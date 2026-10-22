@@ -28,6 +28,7 @@ from app.models.sales import (
     Sale,
     SaleLine,
     SaleStatus,
+    SaleTradeIn,
 )
 from app.models.settings import BusinessSettings, PaymentMethod
 from app.models.stock import MovementType, StockMovement
@@ -41,7 +42,7 @@ __all__ = [
     "ProductUnit", "UnitStatus", "ImeiRegistry", "ON_HAND_STATUSES",
     "Supplier", "Purchase", "PurchaseLine", "PurchaseLineUnit", "PurchaseStatus", "SupplierPayment",
     "Customer", "WALK_IN_NAME",
-    "Sale", "SaleLine", "SaleStatus", "CustomerPayment", "ReceiptCounter", "PaymentAllocation",
+    "Sale", "SaleLine", "SaleStatus", "SaleTradeIn", "CustomerPayment", "ReceiptCounter", "PaymentAllocation",
     "SaleReturn", "SaleReturnLine", "SupplierReturn", "SupplierReturnLine",
     "StockAdjustment", "StockAdjustmentLine", "AdjustmentStatus", "Expense",
 ]

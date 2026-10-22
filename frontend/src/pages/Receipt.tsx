@@ -108,6 +108,14 @@ export function ReceiptPage() {
           <Row label="TOTAL" value={naira(sale.total)} strong />
           {sale.payments?.map((p) => <Row key={p.id} label={`Paid · ${p.method_name}`} value={naira(p.amount)} />)}
           {Number(sale.reversal_refund) > 0 && <Row label="Refunded (sale reversed)" value={`−${naira(sale.reversal_refund)}`} />}
+          {sale.trade_in && (
+            <div className="pt-1 text-[12px]">
+              Swap: customer's {sale.trade_in.product_name}
+              <span className="num">{[sale.trade_in.imei1 && ` · IMEI ${sale.trade_in.imei1}`, sale.trade_in.serial_number && ` · S/N ${sale.trade_in.serial_number}`].filter(Boolean).join("")}</span>
+              {` · ${sale.trade_in.condition}`}, taken in at <span className="num">{naira(sale.trade_in.value)}</span>
+              {sale.trade_in.returned_to_customer && " (given back when the sale was reversed)"}
+            </div>
+          )}
           {Number(sale.balance_due) > 0 && (
             <>
               <Row label="Balance owed" value={naira(sale.balance_due)} strong />

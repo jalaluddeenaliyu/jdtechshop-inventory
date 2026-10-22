@@ -53,6 +53,11 @@ export function receiptText(sale: Sale, shop: BusinessSettings): string {
   }
   out.push(`*TOTAL: ${naira(sale.total)}*`);
   for (const p of sale.payments ?? []) out.push(`Paid (${p.method_name}): ${naira(p.amount)}`);
+  const t = sale.trade_in;
+  if (t) {
+    const id = t.imei1 ? `IMEI ${t.imei1}` : t.serial_number ? `S/N ${t.serial_number}` : "";
+    out.push(`Swap: your ${t.product_name}${id ? ` (${id})` : ""}, ${t.condition}, taken in at ${naira(t.value)}${t.returned_to_customer ? " — given back" : ""}`);
+  }
   if (Number(sale.returned_total) > 0) out.push(`Items returned: −${naira(sale.returned_total)}`);
   if (Number(sale.reversal_refund) > 0) out.push(`Refunded: −${naira(sale.reversal_refund)}`);
   if (Number(sale.balance_due) > 0) {

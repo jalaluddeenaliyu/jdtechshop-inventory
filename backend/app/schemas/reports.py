@@ -54,6 +54,7 @@ class PeriodFigures(BaseModel):
     cash_received: Decimal | None = None  # customer payments in the period
     refunds: Decimal | None = None
     received_by_method: list[MethodAmount] | None = None
+    swap_value: Decimal | None = None  # old phones taken in as part payment (not money)
 
 
 class DayPoint(BaseModel):

@@ -65,7 +65,7 @@ def _reset_default_product_names():
 def clean_tables():
     with engine.begin() as conn:
         conn.execute(text(
-            "TRUNCATE expenses, stock_adjustment_lines, stock_adjustments, sale_return_lines, sale_returns, "
+            "TRUNCATE sale_trade_ins, expenses, stock_adjustment_lines, stock_adjustments, sale_return_lines, sale_returns, "
             "supplier_return_lines, supplier_returns, customer_payment_allocations, customer_payments, sale_lines, sales, receipt_counters, "
             "customers, supplier_payments, purchase_line_units, purchase_lines, purchases, "
             "suppliers, imei_registry, product_units, stock_movements, products, categories, "
@@ -92,6 +92,10 @@ def clean_tables():
         conn.execute(text(
             "INSERT INTO payment_methods (name, is_active, sort_order) VALUES "
             "('Cash', true, 1), ('Bank transfer', true, 2), ('POS terminal', true, 3)"
+        ))
+        conn.execute(text(  # the built-in swap payment kind (migration 0012)
+            "INSERT INTO payment_methods (name, is_active, sort_order, is_trade_in) "
+            "VALUES ('Swap (old phone)', false, 999, true)"
         ))
     yield
 

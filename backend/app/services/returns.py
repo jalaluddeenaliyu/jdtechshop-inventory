@@ -38,6 +38,7 @@ from app.models import (
 )
 from app.schemas.returns import ReasonIn, SaleReturnIn
 from app.services import stock as stock_service
+from app.services import swaps
 from app.services.debts import sale_money
 
 KOBO = Decimal("0.01")
@@ -94,6 +95,11 @@ def _bring_back(db: Session, line: SaleLine, quantity: int, restock: bool, actor
     if product.tracking_type == TrackingType.SERVICE:
         return  # a service has no stock to bring back; only the money is undone
     unit = db.get(ProductUnit, line.unit_id, with_for_update=True) if line.unit_id else None
+    swap_receipt = swaps.came_back_in_swap(db, line) if unit else None
+    if swap_receipt:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"This {product.name} already came back to the shop in a swap "
+                            f"({swap_receipt}), so it can't be returned on this receipt too.")
     common = {"user": actor, "unit_id": unit.id if unit else None, "reference_type": reference_type,
               "reference_id": reference_id, "reason": reason}
     if unit:
@@ -212,7 +218,8 @@ def reverse_sale(db: Session, sale_id: int, data: ReasonIn, actor: User,
                             "remaining items instead of reversing the sale.")
     for pid in sorted({line.product_id for line in sale.lines}):
         stock_service.lock_product(db, pid)
-    refund = sale_money(db, [sale.id])[sale.id].paid
+    swaps.undo_trade_in(db, sale, actor, data.reason)  # the customer gets the old phone back
+    refund = sale_money(db, [sale.id])[sale.id].paid  # money only: the swap value is undone above
     method_id = _refund_method(db, data.refund_method_id, refund)
 
     for line in sale.lines:

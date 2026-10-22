@@ -163,3 +163,36 @@ class PaymentAllocation(Base):
                                             index=True)
     sale_id: Mapped[int] = mapped_column(ForeignKey("sales.id"), nullable=False, index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+
+
+class SaleTradeIn(Base):
+    """Swap deal: the customer's old phone, taken in at an agreed value as part payment.
+
+    The phone becomes a unit in stock (cost = the value) and the value is a payment of the
+    built-in "Swap (old phone)" kind. Permanent (database trigger); undone only by reversing
+    the sale, which gives the phone back.
+    """
+
+    __tablename__ = "sale_trade_ins"
+    __table_args__ = (
+        CheckConstraint("value > 0", name="value_positive"),
+        CheckConstraint("condition IN ('new', 'used', 'refurbished')", name="condition_valid"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    sale_id: Mapped[int] = mapped_column(ForeignKey("sales.id"), nullable=False, unique=True)
+    unit_id: Mapped[int] = mapped_column(ForeignKey("product_units.id"), nullable=False, index=True)
+    payment_id: Mapped[int] = mapped_column(ForeignKey("customer_payments.id"), nullable=False,
+                                            unique=True)
+    value: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    product_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    imei1: Mapped[str | None] = mapped_column(String(15))
+    imei2: Mapped[str | None] = mapped_column(String(15))
+    serial_number: Mapped[str | None] = mapped_column(String(64))
+    condition: Mapped[str] = mapped_column(String(20), nullable=False)
+    notes: Mapped[str | None] = mapped_column(String(255))
+    previous_sale_line_id: Mapped[int | None] = mapped_column(ForeignKey("sale_lines.id"))
+    previous_unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    previous_condition: Mapped[str | None] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                 nullable=False)

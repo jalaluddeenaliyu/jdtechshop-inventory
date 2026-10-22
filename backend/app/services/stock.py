@@ -21,7 +21,8 @@ COST_PLACES = Decimal("0.0001")
 
 # Movements that bring stock in at a known cost and therefore update the weighted average.
 # (A customer return comes back at the cost frozen on the sale line.)
-COST_RECEIVING = {MovementType.OPENING, MovementType.PURCHASE, MovementType.CUSTOMER_RETURN}
+COST_RECEIVING = {MovementType.OPENING, MovementType.PURCHASE, MovementType.CUSTOMER_RETURN,
+                  MovementType.TRADE_IN}
 
 
 def lock_product(db: Session, product_id: int) -> Product:

@@ -46,3 +46,7 @@ class PaymentMethod(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(50), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # The built-in "Swap (old phone)" kind (migration 0012): the value of a phone taken in at
+    # the till. Not money, never offered on cash screens, left out of cash figures.
+    is_trade_in: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False,
+                                              server_default="false")

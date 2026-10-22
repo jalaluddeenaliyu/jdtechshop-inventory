@@ -137,12 +137,15 @@ def period_figures(db: Session, d1: date, d2: date, show_cost: bool,
     reversal_refunds = db.scalar(select(func.coalesce(func.sum(Sale.reversal_refund), 0)).where(
         Sale.status == SaleStatus.REVERSED, shop_day(Sale.reversed_at).between(d1, d2)))
 
-    received = db.execute(
-        select(PaymentMethod.name, func.sum(CustomerPayment.amount))
+    received_all = db.execute(
+        select(PaymentMethod.name, PaymentMethod.is_trade_in, func.sum(CustomerPayment.amount))
         .join(PaymentMethod, PaymentMethod.id == CustomerPayment.method_id)
         .where(CustomerPayment.business_date.between(d1, d2), CustomerPayment.reversed.is_(False))
-        .group_by(PaymentMethod.name).order_by(PaymentMethod.name)
+        .group_by(PaymentMethod.name, PaymentMethod.is_trade_in).order_by(PaymentMethod.name)
     ).all()
+    # Phones taken in on swaps are part payment but not money: kept apart from cash.
+    received = [(m, a) for m, swap, a in received_all if not swap]
+    figures.swap_value = _d(sum((a for _, swap, a in received_all if swap), Decimal(0)))
     figures.cost_of_goods = cogs
     figures.gross_profit = gross_profit
     figures.gross_margin = (gross_profit / net * 100).quantize(Decimal("0.1")) if net else None
@@ -659,6 +662,8 @@ def report_cash(db: Session, d1: date, d2: date) -> Report:
                                       CustomerPayment.reversed.is_(False))
                                .group_by(CustomerPayment.method_id)):
         flows[mid]["received"] += amt
+    swap_id = db.scalar(select(PaymentMethod.id).where(PaymentMethod.is_trade_in.is_(True)))
+    swapped = flows.pop(swap_id, {}).get("received", ZERO)  # phones, not money
     for mid, amt in db.execute(select(SaleReturn.refund_method_id, func.sum(SaleReturn.refund_amount))
                                .where(SaleReturn.business_date.between(d1, d2), SaleReturn.refund_amount > 0)
                                .group_by(SaleReturn.refund_method_id)):
@@ -690,7 +695,9 @@ def report_cash(db: Session, d1: date, d2: date) -> Report:
         rows=rows,
         totals={k: sum((r[k] for r in rows), ZERO) for k in
                 ("received", "refunds", "suppliers", "expenses", "net")} if rows else None,
-        notes=["Credit sales are revenue on the day of sale but appear here only when paid."],
+        notes=["Credit sales are revenue on the day of sale but appear here only when paid."]
+        + ([f"Old phones taken in on swaps (part payment, not money): ₦{swapped:,.2f}"]
+           if swapped else []),
     )
 
 

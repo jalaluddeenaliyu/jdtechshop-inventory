@@ -54,7 +54,8 @@ def update_business_settings(body: BusinessSettingsUpdate, request: Request, own
 @router.get("/payment-methods", response_model=list[PaymentMethodOut])
 def list_payment_methods(_: CurrentUser, db: DB,
                          include_inactive: bool = False) -> list[PaymentMethod]:
-    q = select(PaymentMethod).order_by(PaymentMethod.sort_order, PaymentMethod.name)
+    q = (select(PaymentMethod).where(PaymentMethod.is_trade_in.is_(False))  # swaps: built in, hidden
+         .order_by(PaymentMethod.sort_order, PaymentMethod.name))
     if not include_inactive:
         q = q.where(PaymentMethod.is_active.is_(True))
     return list(db.scalars(q))
@@ -80,7 +81,7 @@ def create_payment_method(body: PaymentMethodCreate, request: Request, owner: Ow
 def update_payment_method(pm_id: int, body: PaymentMethodUpdate, request: Request,
                           owner: OwnerUser, db: DB) -> PaymentMethod:
     pm = db.get(PaymentMethod, pm_id, with_for_update=True)
-    if pm is None:
+    if pm is None or pm.is_trade_in:
         raise HTTPException(404, "Payment method not found.")
     changes = {}
     for field, new in body.model_dump(exclude_none=True).items():

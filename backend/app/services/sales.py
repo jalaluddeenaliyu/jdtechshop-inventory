@@ -53,6 +53,7 @@ from app.schemas.sales import (
     SaleReturnSummary,
 )
 from app.services import stock as stock_service
+from app.services import swaps
 from app.services.catalog import like_pattern, list_products
 from app.services.customers import walk_in_customer
 from app.services.debts import SaleMoney, sale_balance_expr, sale_money
@@ -158,9 +159,14 @@ def create_sale(db: Session, data: SaleIn, actor: User,
     def pid_of(line) -> int:
         return quick_id if line.quick_name else line.product_id
 
+    swap = swaps.plan_trade_in(db, data.trade_in) if data.trade_in else None
+
     # Lock products (id order), then units (id order): the same order in every sale.
     products: dict[int, Product] = {}
-    for pid in sorted({pid_of(line) for line in data.lines}):
+    to_lock = {pid_of(line) for line in data.lines}
+    if swap and swap.product_id is not None:
+        to_lock.add(swap.product_id)
+    for pid in sorted(to_lock):
         product = db.get(Product, pid, with_for_update=True, populate_existing=True)
         if product is None:
             raise HTTPException(422, "A product in the cart no longer exists.")
@@ -248,6 +254,9 @@ def create_sale(db: Session, data: SaleIn, actor: User,
             raise HTTPException(422, "Choose an active payment method for each payment.")
         methods[method.id] = method
     paid = sum((p.amount for p in data.payments), ZERO)
+    if swap:
+        swaps.check_value(swap.data, total, paid)
+        paid += swap.data.value
     if paid > total:
         raise HTTPException(
             422,
@@ -307,6 +316,8 @@ def create_sale(db: Session, data: SaleIn, actor: User,
                 business_date=today, reference=p.reference, recorded_by_id=actor.id,
             ))
         db.flush()
+        swap_details = swaps.apply_trade_in(db, swap, sale, customer, today, actor, request) \
+            if swap else None
         audit.record(db, action="sale.completed", user=actor, entity_type="sale",
                      entity_id=sale.id,
                      details={"receipt_no": receipt_no, "total": str(total), "paid": str(paid),
@@ -316,6 +327,7 @@ def create_sale(db: Session, data: SaleIn, actor: User,
                               **({"quick_sale_items": [line.quick_name for line, *_ in priced
                                                        if line.quick_name]}
                                  if has_quick else {}),
+                              **({"swap": swap_details} if swap_details else {}),
                               **({"sale_date": sale_day.isoformat(),
                                   "entered_late": True} if backdated else {})},
                      request=request)
@@ -405,6 +417,7 @@ def sale_out(db: Session, sale: Sale, show_cost: bool, detail: bool = False,
                 else (sale.total - money.returned - cost + returned_cost).quantize(KOBO))
         if show_cost else None,
         lines=lines, payments=payments,
+        trade_in=swaps.trade_in_out(db, sale) if detail else None,
     )
 
 

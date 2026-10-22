@@ -1,5 +1,5 @@
-import { CalendarDays, CheckCircle2, Minus, Plus, Printer, ScanLine, Search, Trash2, UserPlus, UserRound, X, Zap } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { CalendarDays, CheckCircle2, Minus, Plus, Printer, ScanLine, Search, Trash2, UserPlus, UserRound, Repeat, X, Zap } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Badge, Button, Dialog, Notice, PageHeader, Panel, Spinner, TextInput } from "../components/ui";
 import { ShareWhatsApp } from "../components/ShareWhatsApp";
@@ -23,6 +23,7 @@ import { useAuth } from "../lib/auth";
 import { dateOnly, naira, phone, todayISO } from "../lib/format";
 import { CustomerForm } from "./Customers";
 import { QuickReview } from "./QuickReview";
+import { SwapForm, type SwapDraft } from "./SwapForm";
 import { SalesHistory } from "./SalesHistory";
 
 export function PosPage() {
@@ -106,6 +107,8 @@ function Till() {
   const [picking, setPicking] = useState<PosProduct | null>(null);
   const [done, setDone] = useState<Sale | null>(null);
   const [quickName, setQuickName] = useState<string | null>(null); // the Quick sale box is open
+  const [swap, setSwap] = useState<SwapDraft | null>(null); // customer's old phone, part payment
+  const [swapOpen, setSwapOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -121,9 +124,10 @@ function Till() {
     const subtotal = cart.reduce((s, l) => s + kobo(l.quantity * linePrice(l)), 0);
     const discount = cart.reduce((s, l) => s + kobo(money(l.discount)), 0);
     const paid = payments.reduce((s, p) => s + kobo(money(p.amount)), 0);
+    const swapped = swap ? kobo(swap.value) : 0;
     return { subtotal: subtotal / 100, discount: discount / 100, total: (subtotal - discount) / 100, paid: paid / 100,
-      owed: (subtotal - discount - paid) / 100 };
-  }, [cart, payments]);
+      swap: swapped / 100, owed: (subtotal - discount - paid - swapped) / 100 };
+  }, [cart, payments, swap]);
 
   const itemCount = cart.reduce((n, l) => n + l.quantity, 0);
   const limitPct = Number(settings?.staff_max_discount_percent ?? 0);
@@ -184,12 +188,13 @@ function Till() {
 
   function payInFull() {
     const others = payments.slice(1).reduce((s, p) => s + kobo(money(p.amount)), 0);
-    const rest = Math.max(0, kobo(totals.total) - others) / 100;
+    const rest = Math.max(0, kobo(totals.total) - others - kobo(totals.swap)) / 100;
     setPayments((ps) => ps.map((p, i) => (i === 0 ? { ...p, amount: rest ? rest.toFixed(2) : "" } : p)));
   }
 
   function reset() {
     setCart([]);
+    setSwap(null);
     setPayments([{ key: nextKey++, method_id: methods[0] ? String(methods[0].id) : "", amount: "" }]);
     setDueDate("");
     setTendered("");
@@ -207,7 +212,8 @@ function Till() {
     if (totals.owed > 0 && customer?.is_walk_in) {
       return setError(`${naira(totals.owed)} is unpaid. Walk-in customers must pay in full — choose or add the customer to sell on credit.`);
     }
-    if (totals.owed < 0) return setError("Payments are more than the total. Enter only what goes towards this sale.");
+    if (swap && swap.value > totals.total) return setError(`The swap value (${naira(swap.value)}) is more than this sale. A swap can only pay for part or all of it.`);
+    if (totals.owed < 0) return setError(swap ? "The swap plus the payments come to more than the total. Lower the payments." : "Payments are more than the total. Enter only what goes towards this sale.");
     const unpriced = cart.find((l) => isOpenPrice(l.product) && !(money(l.price) > 0));
     if (unpriced) {
       setLineErrors({ [unpriced.key]: `Enter the price for ${unpriced.product.name}.` });
@@ -230,10 +236,12 @@ function Till() {
           .map((p) => ({ method_id: Number(p.method_id), amount: money(p.amount).toFixed(2) })),
         due_date: totals.owed > 0 && dueDate ? dueDate : null,
         ...(backdated ? { sale_date: saleDate } : {}),
+        ...(swap ? { trade_in: swap.payload } : {}),
         idempotency_key: saleKey,
       });
       setDone(sale);
       setCart([]);
+      setSwap(null);
       setPayments([{ key: nextKey++, method_id: methods[0] ? String(methods[0].id) : "", amount: "" }]);
       setDueDate("");
       setTendered("");
@@ -391,6 +399,24 @@ function Till() {
             </div>
           </div>
 
+          {swap ? (
+            <div className="mt-3 flex items-start justify-between gap-2 rounded-md border border-board/30 bg-board/5 px-3 py-2 text-sm">
+              <div className="min-w-0">
+                <p className="font-medium"><Repeat className="inline size-4 align-[-3px]" aria-hidden /> Swap: {swap.productName}</p>
+                <p className="text-muted num truncate">{swap.identifier} · {swap.payload.condition}</p>
+                <span className="flex gap-3">
+                  <button type="button" className="text-board underline" onClick={() => setSwapOpen(true)}>Change</button>
+                  <button type="button" className="text-alert underline" onClick={() => setSwap(null)}>Remove</button>
+                </span>
+              </div>
+              <span className="num font-medium whitespace-nowrap">−{naira(swap.value)}</span>
+            </div>
+          ) : (
+            <Button variant="ghost" className="mt-2 h-8" onClick={() => setSwapOpen(true)} disabled={!cart.length}>
+              <Repeat className="size-4" aria-hidden /> Swap: customer's old phone
+            </Button>
+          )}
+
           {cashPaid > 0 && (
             <div className="mt-3 flex items-center justify-between gap-2 rounded-md bg-paper px-3 py-2 text-sm">
               <label className="flex items-center gap-2">
@@ -452,6 +478,10 @@ function Till() {
         </Panel>
       </div>
 
+      <Dialog wide open={swapOpen} title="Swap: customer's old phone" onClose={() => setSwapOpen(false)}>
+        {swapOpen && <SwapForm initial={swap} total={totals.total} onSave={(d) => { setSwap(d); setSwapOpen(false); setError(null); }} />}
+      </Dialog>
+
       <Dialog open={quickName !== null} title="Quick sale" onClose={() => setQuickName(null)}>
         {quickName !== null && <QuickSaleForm initialName={quickName} isOwner={isOwner} onAdd={addQuick} />}
       </Dialog>
@@ -481,6 +511,8 @@ export function ScanBox({ inputRef, onPick, onQuick, placeholder = "Scan barcode
   const [searching, setSearching] = useState(false);
   const [notFound, setNotFound] = useState<string | null>(null);
   const seq = useRef(0);
+  const uid = useId(); // several search boxes can be on screen (the till, the swap form)
+  const inputId = `pos-search${uid}`, listId = `pos-results${uid}`;
 
   const search = useCallback(async (term: string) => {
     const n = ++seq.current;
@@ -525,15 +557,15 @@ export function ScanBox({ inputRef, onPick, onQuick, placeholder = "Scan barcode
 
   return (
     <div className="relative">
-      <label htmlFor="pos-search" className="sr-only">Scan or search</label>
+      <label htmlFor={inputId} className="sr-only">Scan or search</label>
       <Search className="pointer-events-none absolute left-3.5 top-1/2 size-5 -translate-y-1/2 text-muted" aria-hidden />
-      <input id="pos-search" ref={inputRef} autoFocus value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey}
-        role="combobox" aria-expanded={results.length > 0} aria-controls="pos-results" aria-autocomplete="list"
+      <input id={inputId} ref={inputRef} autoFocus value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey}
+        role="combobox" aria-expanded={results.length > 0} aria-controls={listId} aria-autocomplete="list"
         placeholder={placeholder}
         className="block w-full h-12 rounded-lg border border-line bg-white pl-11 pr-3 text-base placeholder:text-muted/70
           focus:outline-none focus:border-board focus:ring-2 focus:ring-pad/40" />
       {q.trim() && (
-        <ul id="pos-results" role="listbox" className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-line bg-white shadow-lg">
+        <ul id={listId} role="listbox" className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-line bg-white shadow-lg">
           {results.map((r, i) => (
             <li key={`${r.kind}-${r.unit?.id ?? r.product.id}`} role="option" aria-selected={i === active}
               onMouseDown={(e) => { e.preventDefault(); pick(r); }} onMouseEnter={() => setActive(i)}

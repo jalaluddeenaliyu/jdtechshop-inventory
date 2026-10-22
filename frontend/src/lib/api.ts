@@ -459,6 +459,8 @@ export interface Sale {
   reversal_reason: string | null;
   reversal_refund: string;
   returns: SaleReturnSummary[] | null;
+  /** Swap deal: the customer's old phone taken in as part payment */
+  trade_in?: TradeIn | null;
   /** owner only */
   profit: string | null;
   lines: SaleLine[] | null;
@@ -519,6 +521,8 @@ export interface PeriodFigures {
   cash_received: string | null;
   refunds: string | null;
   received_by_method: { method: string; amount: string }[] | null;
+  /** Old phones taken in on swaps (part payment, not money) */
+  swap_value?: string | null;
 }
 
 export interface DashboardData {
@@ -594,4 +598,31 @@ export interface QuickLine {
   /** null = only its cost was entered */
   linked_product_name: string | null;
   cost_total: string;
+}
+
+export interface TradeIn {
+  product_id: number;
+  product_name: string;
+  unit_id: number;
+  imei1: string | null;
+  imei2: string | null;
+  serial_number: string | null;
+  condition: Condition;
+  value: string;
+  notes: string | null;
+  /** The sale was reversed and the phone given back */
+  returned_to_customer: boolean;
+}
+
+/** What the till sends for a swap */
+export interface TradeInIn {
+  product_id?: number;
+  new_product_name?: string;
+  new_product_price?: string;
+  imei1?: string | null;
+  imei2?: string | null;
+  serial_number?: string | null;
+  condition: Condition;
+  value: string;
+  notes?: string | null;
 }

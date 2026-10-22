@@ -28,6 +28,7 @@ class MovementType(StrEnum):
     MISSING = "missing"
     ADJUSTMENT = "adjustment"
     REVERSAL = "reversal"
+    TRADE_IN = "trade_in"  # a customer's old phone taken in as part payment (swap)
 
 
 _TYPES_SQL = ", ".join(f"'{t.value}'" for t in MovementType)

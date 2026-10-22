@@ -59,7 +59,8 @@ export function DashboardPage() {
             )}
             {isOwner ? (
               <Tile label="Cash received" value={naira(f.cash_received)}
-                note={Number(f.refunds) > 0 ? `${naira(f.refunds)} refunded` : "from customers"} />
+                note={[Number(f.refunds) > 0 ? `${naira(f.refunds)} refunded` : "from customers",
+                  Number(f.swap_value) > 0 ? `plus ${naira(f.swap_value)} in swapped phones` : ""].filter(Boolean).join(" · ")} />
             ) : (
               <Tile label="Returns" value={naira(f.returns)} />
             )}
@@ -133,6 +134,9 @@ export function DashboardPage() {
                     ))}
                     {Number(f.refunds) > 0 && (
                       <li className="flex justify-between text-muted"><span>Refunded</span><span className="num">−{naira(f.refunds)}</span></li>
+                    )}
+                    {Number(f.swap_value) > 0 && (
+                      <li className="flex justify-between text-muted"><span>Old phones taken in on swaps (not money)</span><span className="num">{naira(f.swap_value)}</span></li>
                     )}
                   </ul>
                 ) : <p className="text-muted">No payments received in this period.</p>}

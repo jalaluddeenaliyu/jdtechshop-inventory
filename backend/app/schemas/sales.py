@@ -4,7 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.schemas.catalog import ConditionName, TrackingName, _blank_to_none, to_kobo
+from app.schemas.catalog import ConditionName, TrackingName, _blank_to_none, _clean_name, to_kobo
+from app.schemas.units import _Identifiers, check_identifier_rules
 
 
 class SaleLineIn(BaseModel):
@@ -51,6 +52,50 @@ class SalePaymentIn(BaseModel):
     _blank = field_validator("reference", mode="before")(_blank_to_none)
 
 
+class TradeInIn(_Identifiers):
+    """Swap deal: the customer's old phone, taken in at an agreed value as part payment.
+    Which product it is: an existing phone/laptop product, or a new one (name + selling price)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    product_id: int | None = None
+    new_product_name: str | None = Field(default=None, max_length=160)
+    new_product_price: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
+    condition: ConditionName = "used"
+    value: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    notes: str | None = Field(default=None, max_length=255)
+
+    _blank = field_validator("new_product_name", "notes", mode="before")(_blank_to_none)
+    _k = field_validator("value", "new_product_price")(to_kobo)
+
+    @field_validator("new_product_name")
+    @classmethod
+    def _name(cls, v):
+        return _clean_name(v) if v else v
+
+    @model_validator(mode="after")
+    def _rules(self):
+        if (self.product_id is None) == (self.new_product_name is None):
+            raise ValueError("For the swap, choose which phone it is, or type a new product name.")
+        if self.new_product_name is not None and self.new_product_price is None:
+            raise ValueError("Enter the selling price for the new product.")
+        check_identifier_rules(self.serial_number, self.imei1, self.imei2)
+        return self
+
+
+class TradeInOut(BaseModel):
+    product_id: int
+    product_name: str
+    unit_id: int
+    imei1: str | None
+    imei2: str | None
+    serial_number: str | None
+    condition: ConditionName
+    value: Decimal
+    notes: str | None
+    returned_to_customer: bool  # the sale was reversed and the phone given back
+
+
 class SaleIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -59,6 +104,8 @@ class SaleIn(BaseModel):
     # What the customer pays now. Less than the total = the rest is owed (credit sale).
     payments: list[SalePaymentIn] = Field(default_factory=list, max_length=5)
     due_date: date | None = None
+    # Swap deal: the customer's old phone, part payment.
+    trade_in: TradeInIn | None = None
     # Owner only: record a sale that happened on an earlier day (entering old records).
     # Empty = today.
     sale_date: date | None = None
@@ -127,6 +174,7 @@ class SaleOut(BaseModel):
     lines: list[SaleLineOut] | None = None       # detail only
     payments: list[SalePaymentOut] | None = None  # detail only
     returns: list["SaleReturnSummary"] | None = None  # detail only
+    trade_in: TradeInOut | None = None  # swap deal (detail only)
 
 
 class PosProduct(BaseModel):
