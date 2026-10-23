@@ -119,11 +119,34 @@ def test_imei_already_in_the_shop_or_twice_in_file_is_refused(owner_client):
     assert "entered twice" in msgs
 
 
-def test_existing_product_name_is_refused(owner_client):
+def test_existing_products_get_their_opening_stock(owner_client):
+    """Products already in the shop (e.g. from imported old sales) get today's stock from the file."""
+    cable = owner_client.post("/api/products", json={"name": "Lightning cable", "tracking_type": "quantity",
+                                                     "selling_price": "3000"}).json()
+    phone = owner_client.post("/api/products", json={"name": "iPhone 11 64GB", "tracking_type": "serialized",
+                                                     "selling_price": "280000"}).json()
+    rows = [["lightning  CABLE", None, None, 12, 1800, "Cables", None, None, None, None, None, None],
+            ["iPhone 11 64GB", None, 280000, None, 200000, None, None, "Used", GOOD_IMEIS[0], None, None, None]]
+    body = upload(owner_client, xlsx(rows), commit=True).json()
+    assert body["saved"] is True, body
+    assert body["summary"]["existing_products"] == 2 and body["summary"]["new_categories"] == []
+    c = owner_client.get(f"/api/products/{cable['id']}").json()
+    assert c["qty_on_hand"] == 12 and Decimal(c["cost_each"]) == Decimal("1800") and c["selling_price"] == "3000.00"
+    assert owner_client.get(f"/api/products/{phone['id']}").json()["qty_on_hand"] == 1
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(Product)
+                         .where(Product.is_quick_sale.is_(False))) == 2  # nothing created twice
+    # Once a product has stock, the file can't add to it again (that's a purchase).
+    again = upload(owner_client, xlsx(rows[:1])).json()
+    assert "already has stock" in again["problems"][0]["message"]
+
+
+def test_existing_product_counted_differently_is_refused(owner_client):
     owner_client.post("/api/products", json={"name": "Lightning cable", "tracking_type": "quantity",
                                              "selling_price": "3000"})
-    body = upload(owner_client, xlsx([MIXED[-1]])).json()
-    assert "already exists" in body["problems"][0]["message"]
+    rows = [["Lightning cable", "Service", 3000, None, None, None, None, None, None, None, None, None]]
+    body = upload(owner_client, xlsx(rows)).json()
+    assert "already in your products" in body["problems"][0]["message"]
 
 
 def test_csv_with_other_column_names_works(owner_client):

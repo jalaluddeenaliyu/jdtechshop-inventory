@@ -33,6 +33,7 @@ from app.models import Brand, Category, Product, User
 from app.schemas.catalog import ProductCreate
 from app.schemas.units import UnitIn
 from app.services import catalog as catalog_service
+from app.services import stock as stock_service
 from app.services import units as unit_service
 
 MAX_BYTES = 3 * 1024 * 1024
@@ -258,6 +259,9 @@ def _explain(e: Exception) -> str:
     return str(e)
 
 
+TRACKING_WORDS = {"quantity": "quantity", "serialized": "serial/IMEI", "service": "service (no stock)"}
+
+
 @dataclass
 class Group:
     key: str
@@ -326,7 +330,18 @@ def run_import(db: Session, content: bytes, filename: str, actor: User,
         try:
             has_ids = [r for r in group.rows
                        if r.values.get("imei1") or r.values.get("imei2") or r.values.get("serial")]
-            tracking = _tracking(v.get("tracking", "")) or ("serialized" if has_ids else "quantity")
+            # A product already in the shop (e.g. added by importing old sales) gets its opening
+            # stock from this row instead of being created again.
+            existing = db.scalar(select(Product).where(
+                func.lower(Product.name) == result["name"].lower(), Product.is_active.is_(True),
+                Product.is_quick_sale.is_(False)).limit(1))
+            result["existing"] = existing is not None
+            tracking = (_tracking(v.get("tracking", "")) or (existing.tracking_type if existing else None)
+                        or ("serialized" if has_ids else "quantity"))
+            if existing is not None and tracking != existing.tracking_type:
+                raise RowProblem(f"“{existing.name}” is already in your products, counted by "
+                                 f"{TRACKING_WORDS[existing.tracking_type]}. Change “Counted by” "
+                                 "to match, or leave it empty.")
             result["tracking_type"] = tracking
             if tracking == "service":
                 if len(group.rows) > 1:
@@ -345,6 +360,8 @@ def run_import(db: Session, content: bytes, filename: str, actor: User,
                     raise RowProblem("This row has an IMEI/serial number, so “Counted by” "
                                      "should be Serial/IMEI.")
             price = _money(v.get("selling_price", ""), HEADER["selling_price"])
+            if price is None and existing is not None:
+                price = existing.selling_price  # already set; the file doesn't change it
             if price is None:
                 raise RowProblem(f"{HEADER['selling_price']} is empty.")
             result["selling_price"] = price
@@ -354,9 +371,10 @@ def run_import(db: Session, content: bytes, filename: str, actor: User,
                 "model": v.get("model") or None,
                 "specifications": v.get("specifications") or None,
                 "reorder_level": _whole(v.get("reorder_level", ""), HEADER["reorder_level"]),
-                "category_id": _resolve(db, categories, v.get("category", ""), actor, request,
-                                        "category"),
-                "brand_id": _resolve(db, brands, v.get("brand", ""), actor, request, "brand"),
+                "category_id": None if existing else _resolve(db, categories, v.get("category", ""),
+                                                              actor, request, "category"),
+                "brand_id": None if existing else _resolve(db, brands, v.get("brand", ""), actor,
+                                                           request, "brand"),
             }
             if tracking == "service":
                 body["service_cost"] = _money(v.get("cost", ""), HEADER["cost"])
@@ -373,8 +391,21 @@ def run_import(db: Session, content: bytes, filename: str, actor: User,
                     if cost is None:
                         raise RowProblem(f"{HEADER['cost']} is empty. Enter what one cost you.")
                     body["opening_quantity"], body["opening_unit_cost"] = qty, cost
-            data = ProductCreate(**body)
-            product = catalog_service.create_product(db, data, actor, request, commit=False)
+            if existing is None:
+                data = ProductCreate(**body)
+                product = catalog_service.create_product(db, data, actor, request, commit=False)
+            else:
+                product = stock_service.lock_product(db, existing.id)
+                open_ = catalog_service.opening_stock_open(db, [product]).get(product.id, False)
+                adding = body.get("opening_quantity") or has_ids
+                if adding and not open_:
+                    raise RowProblem(f"“{product.name}” already has stock recorded, so this file "
+                                     "can't add to it. Add more through Purchases.")
+                if body.get("opening_quantity"):
+                    stock_service.add_opening_stock(
+                        db, product, body["opening_quantity"],
+                        Decimal(body["opening_unit_cost"]).quantize(Decimal("0.0001")),
+                        note="Imported from a spreadsheet", actor=actor, request=request)
 
             if tracking == "serialized":
                 if len(group.rows) > 1 and len(has_ids) != len(group.rows):
@@ -424,6 +455,7 @@ def run_import(db: Session, content: bytes, filename: str, actor: User,
     ok = [r for r in results if not r["error"]]
     summary = {
         "products": len(ok),
+        "existing_products": sum(1 for r in ok if r.get("existing")),
         "phones_and_laptops": sum(r["quantity"] for r in ok if r["tracking_type"] == "serialized"),
         "items_in_stock": sum(r["quantity"] for r in ok),
         "stock_value": str(sum((Decimal(r["stock_value"]) for r in ok), Decimal("0.00"))),

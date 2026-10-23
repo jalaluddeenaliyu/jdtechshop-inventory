@@ -15,12 +15,15 @@ interface ImportedProduct {
   category: string | null;
   brand: string | null;
   error: string | null;
+  /** already in the shop: this row only adds its opening stock */
+  existing?: boolean;
 }
 
 interface ImportResult {
   saved: boolean;
   summary: {
     products: number;
+    existing_products?: number;
     phones_and_laptops: number;
     items_in_stock: number;
     stock_value: string;
@@ -66,7 +69,10 @@ export function ImportProducts({ onDone }: { onDone: (message: string) => void }
       const result = await api.upload<ImportResult>("/product-import?commit=true", file);
       if (result.saved) {
         const s = result.summary;
-        onDone(`Imported ${s.products} ${s.products === 1 ? "product" : "products"} with ${s.items_in_stock} items in stock, worth ${naira(s.stock_value)} at cost.`);
+        const old = s.existing_products ?? 0, fresh = s.products - old;
+        const what = [fresh ? `${fresh} new ${fresh === 1 ? "product" : "products"}` : "",
+          old ? `stock for ${old} existing ${old === 1 ? "product" : "products"}` : ""].filter(Boolean).join(" and ");
+        onDone(`Imported ${what || "nothing new"}: ${s.items_in_stock} items in stock, worth ${naira(s.stock_value)} at cost.`);
       } else {
         setPreview(result); // something changed since the preview (e.g. a product was added meanwhile)
       }
@@ -95,6 +101,7 @@ export function ImportProducts({ onDone }: { onDone: (message: string) => void }
           <p className="font-medium">2. Fill it in</p>
           <p className="mt-0.5 text-muted">
             Accessories: one row each, with quantity and cost. Phones and laptops: one row <em>per phone</em>, with its IMEI or serial and cost. Services: “Service”, no quantity.
+            Products already in the app (e.g. from your old sales) just get their stock.
           </p>
         </li>
         <li className="rounded-md border border-line p-3">
@@ -171,6 +178,7 @@ export function ImportProducts({ onDone }: { onDone: (message: string) => void }
                       <div className="text-muted">
                         {p.tracking_type === "serialized" && <Badge tone="pad">Serial/IMEI</Badge>}
                         {p.tracking_type === "service" && <Badge tone="neutral">Service</Badge>}{" "}
+                        {p.existing && !p.error && <Badge tone="ok">Already in your products — stock added</Badge>}{" "}
                         {[p.category, p.brand].filter(Boolean).join(" · ")}
                       </div>
                       {p.error && <div className="text-alert">{p.error}</div>}
