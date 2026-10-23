@@ -1,7 +1,8 @@
-import { Search } from "lucide-react";
+import { History, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Badge, Checkbox, Notice, Pager, Spinner } from "../components/ui";
+import { Badge, Button, Checkbox, Dialog, Notice, Pager, Spinner } from "../components/ui";
+import { ImportSales } from "./ImportSales";
 import { api, qs, type Page, type Sale } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { dateTime, naira, todayISO } from "../lib/format";
@@ -19,6 +20,8 @@ export function SalesHistory() {
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Page<Sale> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => { setQ(search.trim()); setPage(1); }, 250);
@@ -49,9 +52,24 @@ export function SalesHistory() {
             placeholder="Receipt number or customer" className={`${inputCls} w-full pl-9`} />
         </div>
         <Checkbox label="Only unpaid" checked={unpaid} onChange={(e) => { setUnpaid(e.target.checked); setPage(1); }} />
+        {isOwner && (
+          <Button variant="secondary" className="ml-auto" onClick={() => { setFlash(null); setImporting(true); }}>
+            <History className="size-4" aria-hidden /> Import old sales
+          </Button>
+        )}
       </div>
 
+      {flash && <div className="mb-4"><Notice tone="success">{flash}</Notice></div>}
       {error && <Notice tone="error">{error}</Notice>}
+      <Dialog wide open={importing} title="Import old sales" onClose={() => setImporting(false)}>
+        {importing && <ImportSales onDone={(r) => {
+          setImporting(false);
+          const s = r.summary;
+          if (s.date_from && s.date_to) { setFrom(s.date_from); setTo(s.date_to); }
+          setSearch(""); setUnpaid(false); setPage(1);
+          setFlash(`Imported ${s.sales} old sales (${naira(s.total)}), shown below. ${s.new_products.length} products and ${s.new_customers.length} customers were added. Stock was not changed.`);
+        }} />}
+      </Dialog>
       {!data && !error && <Spinner />}
       {data && (
         <>

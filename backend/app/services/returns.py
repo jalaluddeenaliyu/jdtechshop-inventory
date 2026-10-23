@@ -75,6 +75,14 @@ def returned_quantities(db: Session, sale_line_ids: list[int]) -> dict[int, tupl
     )}
 
 
+def _not_imported(sale: Sale) -> None:
+    if sale.imported:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"{sale.receipt_no} was imported from your old records. Its items never came out of "
+            "stock in this app, so it can't be returned or reversed here.")
+
+
 def _refund_method(db: Session, method_id: int | None, amount: Decimal) -> int | None:
     if amount <= 0:
         return None
@@ -124,6 +132,7 @@ def record_return(db: Session, sale_id: int, data: SaleReturnIn, actor: User,
         return existing, False
 
     sale = _lock_sale(db, sale_id)
+    _not_imported(sale)
     if sale.status != SaleStatus.COMPLETED:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             f"Sale {sale.receipt_no} was reversed, so nothing can be returned.")
@@ -212,6 +221,7 @@ def reverse_sale(db: Session, sale_id: int, data: ReasonIn, actor: User,
     sale = _lock_sale(db, sale_id)
     if sale.status == SaleStatus.REVERSED:
         return sale
+    _not_imported(sale)
     if db.scalar(select(SaleReturn.id).where(SaleReturn.sale_id == sale.id).limit(1)):
         raise HTTPException(status.HTTP_409_CONFLICT,
                             f"Some items from {sale.receipt_no} were already returned. Return the "

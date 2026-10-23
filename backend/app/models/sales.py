@@ -67,6 +67,10 @@ class Sale(Base):
     amount_paid_at_sale: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     due_date: Mapped[date | None] = mapped_column(Date)  # for credit sales
     notes: Mapped[str | None] = mapped_column(Text)
+    # Brought in from the shop's old records (another app): history only — its items never
+    # came out of stock here, so it can't be returned or reversed in this app.
+    imported: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False,
+                                           server_default="false")
     # One-time key from the till: the same cart submitted twice records one sale.
     idempotency_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     # Reversal (a mistake undone): who, when and why. Set once, never cleared.

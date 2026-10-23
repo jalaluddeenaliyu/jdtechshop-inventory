@@ -288,6 +288,7 @@ const ACTION_LABELS: Record<string, string> = {
   "stock.opening": "Entered opening stock",
   "stock.opening_units": "Added phones/laptops",
   "sale.quick_reviewed": "Reviewed a quick sale",
+  "sales.imported": "Imported old sales",
 };
 
 function describe(e: AuditEntry): string {
@@ -306,6 +307,9 @@ function describe(e: AuditEntry): string {
   }
   if (e.action === "product.removed") {
     return `${d.name}: took ${d.quantity_removed} out of stock (${naira(String(d.value_removed))} at cost).${reason}`;
+  }
+  if (e.action === "sales.imported") {
+    return `${d.sales} sales from ${d.date_from} to ${d.date_to}, ${naira(String(d.total))}; ${naira(String(d.owed))} still owed. ${d.new_products} new products, ${d.new_customers} new customers. Stock not changed.`;
   }
   if (e.action === "sale.quick_reviewed") {
     return `${d.item} × ${d.quantity} on ${d.receipt_no}: ${d.product ? `linked to ${d.product}${d.unit ? ` (${d.unit})` : ""}` : "cost entered"}, ${naira(String(d.cost_each))} each. Profit ${naira(String(d.profit))}.`;

@@ -14,6 +14,7 @@ from app.api import (
     reports,
     returns,
     sales,
+    sales_import,
     settings,
     stock,
     units,
@@ -34,6 +35,7 @@ api_router.include_router(purchasing.router)
 api_router.include_router(customers.router)
 api_router.include_router(sales.router)
 api_router.include_router(quick_sales.router)
+api_router.include_router(sales_import.router)
 api_router.include_router(debts.router)
 api_router.include_router(returns.router)
 api_router.include_router(expenses.router)
